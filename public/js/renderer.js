@@ -236,15 +236,23 @@ const Renderer = (() => {
       ctx.restore();
     }
 
-    // Shield
-    if (shieldActive) {
+    // Shield (powerup or ability)
+    if (shieldActive || effects.includes('shield')) {
+      const isAbility = effects.includes('shield');
       ctx.save();
-      ctx.strokeStyle = '#9C27B0';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = isAbility ? '#00BCD4' : '#9C27B0';
+      ctx.lineWidth = isAbility ? 3 : 2;
       ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.3;
       ctx.beginPath();
       ctx.arc(x, y, hs + 4, 0, Math.PI * 2);
       ctx.stroke();
+      if (isAbility) {
+        ctx.fillStyle = '#00BCD4';
+        ctx.globalAlpha = 0.12;
+        ctx.beginPath();
+        ctx.arc(x, y, hs + 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
 

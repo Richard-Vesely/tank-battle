@@ -375,7 +375,6 @@ function updateGame(room, dt, now) {
     for (const key of Object.keys(p.activeEffects)) {
       p.activeEffects[key].remaining -= dt * 1000;
       if (p.activeEffects[key].remaining <= 0) {
-        if (key === 'shield') p.shieldActive = false;
         delete p.activeEffects[key];
       }
     }
@@ -435,8 +434,6 @@ function updateGame(room, dt, now) {
           const lvl = getAbilityLevel(p, abilityKey);
           p.activeEffects[abilityKey] = { remaining: def.duration };
           p.abilityCooldowns[abilityKey] = def.cooldown[lvl - 1];
-          // Shield ability: activate shield
-          if (abilityKey === 'shield') p.shieldActive = true;
           io.to(room.code).emit('abilityUsed', { id, ability: abilityKey });
         }
       }
@@ -570,10 +567,13 @@ function updateBullets(room, dt) {
 
       const dx = b.x - p.x, dy = b.y - p.y;
       if (Math.sqrt(dx*dx + dy*dy) < C.TANK_SIZE / 2) {
-        if (p.shieldActive) {
+        if (p.activeEffects && p.activeEffects.shield) {
+          // Shield ability: fully invincible, bullet absorbed
+          io.to(room.code).emit('shieldBreak', { id: pid });
+        } else if (p.shieldActive) {
+          // Powerup shield: breaks on one hit
           p.shieldActive = false;
           p.powerup = null;
-          if (p.activeEffects.shield) delete p.activeEffects.shield;
           io.to(room.code).emit('shieldBreak', { id: pid });
         } else {
           const dmg = Math.round(b.damage * getPlayerArmor(p));
@@ -650,10 +650,12 @@ function updateMines(room) {
       if (!p.alive) continue;
       const dx = m.x - p.x, dy = m.y - p.y;
       if (Math.sqrt(dx*dx + dy*dy) < C.MINE_RADIUS) {
-        const dmg = Math.round(m.damage * getPlayerArmor(p));
-        p.hp -= dmg;
         io.to(room.code).emit('mineExploded', { x: m.x, y: m.y, victim: pid });
-        if (p.hp <= 0) killPlayer(room, pid, m.owner);
+        if (!(p.activeEffects && p.activeEffects.shield)) {
+          const dmg = Math.round(m.damage * getPlayerArmor(p));
+          p.hp -= dmg;
+          if (p.hp <= 0) killPlayer(room, pid, m.owner);
+        }
         room.mines.splice(i, 1);
         break;
       }
