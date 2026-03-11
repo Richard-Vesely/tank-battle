@@ -29,7 +29,7 @@ body {
   display: flex;
 }
 
-/* Lobby */
+/* ─── Lobby ──────────────────────────────────────────────── */
 .title-container {
   text-align: center;
   margin-bottom: 30px;
@@ -60,8 +60,10 @@ body {
   border: 3px solid #0f3460;
   border-radius: 8px;
   padding: 24px;
-  width: 400px;
+  width: 440px;
   max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
 }
 
 .input-group {
@@ -141,16 +143,42 @@ input[type="text"]:focus {
   background: #e74c3c;
 }
 
-.btn-mode {
-  width: 48%;
+.btn-practice {
+  background: #1a6b3c;
+  color: #e0e0e0;
   font-size: 9px;
-  padding: 10px 8px;
+  border: 2px solid #2ecc71;
+}
+
+.btn-practice:hover {
+  background: #27ae60;
+}
+
+.mode-btn {
+  width: 32%;
+  font-size: 8px;
+  padding: 10px 4px;
   background: #1a1a2e;
   color: #a0a0c0;
   border: 2px solid #0f3460;
 }
 
-.btn-mode.active {
+.mode-btn.selected {
+  background: #0f3460;
+  color: #e0e0e0;
+  border-color: #e94560;
+}
+
+.penalty-btn {
+  width: 48%;
+  font-size: 8px;
+  padding: 10px 4px;
+  background: #1a1a2e;
+  color: #a0a0c0;
+  border: 2px solid #0f3460;
+}
+
+.penalty-btn.selected {
   background: #0f3460;
   color: #e0e0e0;
   border-color: #e94560;
@@ -171,7 +199,7 @@ input[type="text"]:focus {
 
 .mode-select {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 8px;
 }
 
@@ -196,7 +224,7 @@ input[type="text"]:focus {
   text-align: center;
 }
 
-/* Waiting Room */
+/* ─── Waiting Room ───────────────────────────────────────── */
 #waiting-screen h2 {
   font-size: 20px;
   color: #e94560;
@@ -263,7 +291,7 @@ input[type="text"]:focus {
   margin: 4px 0;
 }
 
-/* Game */
+/* ─── Game ───────────────────────────────────────────────── */
 #game-screen {
   background: #111;
 }
@@ -274,13 +302,35 @@ input[type="text"]:focus {
 
 #hud {
   position: absolute;
-  top: 10px;
+  top: 8px;
   left: 10px;
   right: 10px;
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   pointer-events: none;
   font-size: 10px;
+  z-index: 5;
+}
+
+#hud-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#hud-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+#hud-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
 }
 
 #hud-hp {
@@ -303,6 +353,32 @@ input[type="text"]:focus {
   transition: width 0.2s;
 }
 
+#hud-currency {
+  font-size: 11px;
+  color: #FFD700;
+  text-shadow: 1px 1px 0 #000;
+}
+
+#hud-powerup {
+  font-size: 9px;
+  color: #FFD700;
+  display: none;
+}
+
+#hud-abilities {
+  display: flex;
+  gap: 4px;
+}
+
+.ability-icon {
+  font-size: 7px;
+  padding: 3px 5px;
+  background: rgba(0,0,0,0.6);
+  border: 1px solid #555;
+  border-radius: 2px;
+  color: #0ff;
+}
+
 #hud-scores {
   display: flex;
   gap: 16px;
@@ -320,13 +396,32 @@ input[type="text"]:focus {
   border-radius: 1px;
 }
 
-#hud-powerup {
-  font-size: 9px;
-  color: #FFD700;
+#hud-dom-scores {
+  display: none;
+  gap: 10px;
+  font-size: 8px;
+}
+
+.dom-entry {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.score-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
 }
 
 #hud-lives {
   font-size: 9px;
+}
+
+.hud-hint {
+  font-size: 7px;
+  color: #666;
 }
 
 .game-message {
@@ -340,6 +435,7 @@ input[type="text"]:focus {
   pointer-events: none;
   text-align: center;
   display: none;
+  z-index: 6;
 }
 
 .game-message.visible {
@@ -352,7 +448,117 @@ input[type="text"]:focus {
   100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
 }
 
-/* Game Over */
+/* ─── Upgrade Shop ───────────────────────────────────────── */
+.upgrade-shop {
+  position: absolute;
+  right: 10px;
+  top: 60px;
+  width: 280px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  background: rgba(10, 10, 30, 0.92);
+  border: 2px solid #0f3460;
+  border-radius: 6px;
+  display: none;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.upgrade-shop.show {
+  display: block;
+}
+
+.shop-header {
+  font-size: 10px;
+  padding: 10px 12px;
+  color: #e94560;
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid #0f3460;
+}
+
+.shop-currency {
+  color: #FFD700;
+}
+
+.shop-category {
+  padding: 6px 12px;
+  border-bottom: 1px solid #0f3460;
+}
+
+.shop-cat-title {
+  font-size: 8px;
+  color: #a0a0c0;
+  padding: 4px 0;
+  letter-spacing: 1px;
+}
+
+.shop-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  font-size: 7px;
+  color: #666;
+  cursor: default;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+
+.shop-item.buyable {
+  color: #e0e0e0;
+  cursor: pointer;
+}
+
+.shop-item.buyable:hover {
+  background: rgba(233, 69, 96, 0.2);
+}
+
+.shop-item.maxed {
+  color: #4CAF50;
+}
+
+.shop-item-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.shop-item-level {
+  font-size: 8px;
+  color: #FFD700;
+  letter-spacing: 1px;
+}
+
+.shop-item-cost {
+  font-size: 7px;
+  color: #a0a0c0;
+  min-width: 50px;
+  text-align: right;
+}
+
+.shop-hotkey {
+  font-size: 6px;
+  color: #0ff;
+  background: rgba(0,255,255,0.1);
+  padding: 1px 3px;
+  border-radius: 2px;
+}
+
+/* Scrollbar for shop */
+.upgrade-shop::-webkit-scrollbar {
+  width: 4px;
+}
+
+.upgrade-shop::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.upgrade-shop::-webkit-scrollbar-thumb {
+  background: #0f3460;
+  border-radius: 2px;
+}
+
+/* ─── Game Over ──────────────────────────────────────────── */
 #gameover-screen {
   background: rgba(0,0,0,0.85);
   z-index: 10;
@@ -370,7 +576,7 @@ input[type="text"]:focus {
   border: 2px solid #0f3460;
   border-radius: 8px;
   padding: 16px;
-  width: 320px;
+  width: 360px;
   margin-bottom: 16px;
 }
 
@@ -383,6 +589,19 @@ input[type="text"]:focus {
 }
 
 .final-score-entry:last-child {
+  border-bottom: none;
+}
+
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  font-size: 10px;
+  border-bottom: 1px solid #0f3460;
+}
+
+.score-row:last-child {
   border-bottom: none;
 }
 
