@@ -52,11 +52,31 @@ function createRoom(mode, hostSocket) {
 function findQuickPlayRoom() {
   for (const [code, room] of rooms) {
     if (room.state === 'waiting' && room.players.size < C.MAX_PLAYERS) {
-      return room;
+      // Only join rooms where at least one player is actually connected
+      let hasConnected = false;
+      for (const [id] of room.players) {
+        if (io.sockets.sockets.get(id)) { hasConnected = true; break; }
+      }
+      if (hasConnected) return room;
     }
   }
   return null;
 }
+
+// Clean up rooms with no connected players periodically
+setInterval(() => {
+  for (const [code, room] of rooms) {
+    let hasConnected = false;
+    for (const [id] of room.players) {
+      if (io.sockets.sockets.get(id)) { hasConnected = true; break; }
+    }
+    if (!hasConnected) {
+      clearInterval(room.tickInterval);
+      clearInterval(room.broadcastInterval);
+      rooms.delete(code);
+    }
+  }
+}, 10000);
 
 function removePlayerFromRoom(socketId) {
   for (const [code, room] of rooms) {
