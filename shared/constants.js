@@ -48,6 +48,10 @@ const CONSTANTS = {
   // ─── Upgrade System ───────────────────────────────────────
   KILL_CURRENCY: 100,       // currency earned per kill
   ASSIST_CURRENCY: 30,      // currency for assists (damage dealt)
+  PASSIVE_INCOME_AMOUNT: 5, // credits earned passively
+  PASSIVE_INCOME_INTERVAL: 3000, // ms between passive income ticks
+  CREDIT_SPAWN_INTERVAL: 8000,   // ms between credit pickup spawns
+  CREDIT_MAX_ON_MAP: 5,          // max credit pickups on map at once
 
   // Upgrade categories and costs
   UPGRADES: {

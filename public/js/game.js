@@ -229,6 +229,10 @@ const Game = (() => {
       effects.push({ type: 'explosion', x: data.x, y: data.y, startTime: Date.now(), duration: 600 });
     });
 
+    Network.on('creditCollected', (data) => {
+      if (data.id === myId) showMessage(`+${data.value} CR`, 1000);
+    });
+
     Network.on('zoneCaptured', (data) => {
       showMessage(`ZONE ${data.label} CAPTURED!`, 2000);
     });
@@ -450,6 +454,11 @@ const Game = (() => {
       state.smokes.forEach(s => Renderer.drawSmoke(s.x, s.y, s.radius || CONSTANTS.SMOKE_RADIUS));
     }
 
+    // Credit pickups
+    if (state.creditPickups) {
+      state.creditPickups.forEach(c => Renderer.drawCreditPickup(c.x, c.y, c.value));
+    }
+
     // Tanks
     if (state.players) {
       state.players.forEach(p => {
@@ -481,9 +490,9 @@ const Game = (() => {
       else Renderer.drawDeathExplosion(e.x, e.y, progress);
     }
 
-    // Fog of War with shadow casting (drawn last, on top of everything)
+    // Fog of War (drawn last, on top of everything)
     if (state.fogCenter) {
-      Renderer.drawFogOfWar(state.fogCenter.x, state.fogCenter.y, state.visionZones, gameMap);
+      Renderer.drawFogOfWar(state.fogCenter.x, state.fogCenter.y, state.visionZones);
     }
 
     updateHUD();

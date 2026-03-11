@@ -38,6 +38,9 @@ function createRoom(mode, deathPenalty) {
     powerups: [],
     mines: [],
     smokes: [],
+    creditPickups: [],
+    lastCreditSpawn: 0,
+    lastPassiveIncome: 0,
     map: null,
     mapSeed: seed,
     scores: {},
@@ -261,6 +264,9 @@ function startGame(room) {
   room.powerups = [];
   room.mines = [];
   room.smokes = [];
+  room.creditPickups = [];
+  room.lastCreditSpawn = Date.now();
+  room.lastPassiveIncome = Date.now();
   room.round++;
   room.lastPowerupSpawn = Date.now();
 
@@ -352,31 +358,6 @@ function isVisibleTo(viewer, target, room) {
   const maxVisibleZone = 4 - stealthZones;
   if (targetZone > maxVisibleZone) return false;
 
-  // Line of sight check - raycast through map
-  if (!hasLineOfSight(viewer.x, viewer.y, target.x, target.y, room.map)) return false;
-
-  return true;
-}
-
-function hasLineOfSight(x1, y1, x2, y2, map) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const steps = Math.ceil(dist / (C.TILE_SIZE / 2));
-
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const cx = x1 + dx * t;
-    const cy = y1 + dy * t;
-    const tx = Math.floor(cx / C.TILE_SIZE);
-    const ty = Math.floor(cy / C.TILE_SIZE);
-
-    if (tx >= 0 && tx < C.MAP_WIDTH && ty >= 0 && ty < C.MAP_HEIGHT) {
-      const tile = map[ty][tx];
-      if (tile === C.TILE_WALL || tile === C.TILE_STEEL) return false;
-      // Bricks partially block (they're shorter)
-    }
-  }
   return true;
 }
 
@@ -423,6 +404,7 @@ function getGameStateForPlayer(room, viewerId) {
     players,
     bullets: visibleBullets.map(b => ({ id: b.id, x: b.x, y: b.y, angle: b.angle, owner: b.owner })),
     powerups: room.powerups,
+    creditPickups: room.creditPickups.map(c => ({ x: c.x, y: c.y, value: c.value })),
     mines: viewer && viewer.alive
       ? room.mines.filter(m => m.owner === viewerId || isVisibleTo(viewer, m, room))
       : room.mines,
@@ -599,6 +581,36 @@ function updateGame(room, dt, now) {
         applyPowerup(p, pu.type);
         room.powerups.splice(i, 1);
         io.to(room.code).emit('powerupCollected', { id: pid, type: pu.type });
+        break;
+      }
+    }
+  }
+
+  // Passive credit income (every few seconds)
+  if (now - room.lastPassiveIncome >= C.PASSIVE_INCOME_INTERVAL) {
+    room.lastPassiveIncome = now;
+    for (const [id, p] of room.players) {
+      if (!p.alive) continue;
+      p.currency += C.PASSIVE_INCOME_AMOUNT;
+    }
+  }
+
+  // Spawn credit pickups
+  if (now - room.lastCreditSpawn >= C.CREDIT_SPAWN_INTERVAL && room.creditPickups.length < C.CREDIT_MAX_ON_MAP) {
+    spawnCreditPickup(room);
+    room.lastCreditSpawn = now;
+  }
+
+  // Credit pickup collection
+  for (let i = room.creditPickups.length - 1; i >= 0; i--) {
+    const cr = room.creditPickups[i];
+    for (const [pid, p] of room.players) {
+      if (!p.alive) continue;
+      const dx = cr.x - p.x, dy = cr.y - p.y;
+      if (Math.sqrt(dx*dx + dy*dy) < (C.TANK_SIZE/2 + 10)) {
+        p.currency += cr.value;
+        io.to(room.code).emit('creditCollected', { id: pid, value: cr.value, total: p.currency });
+        room.creditPickups.splice(i, 1);
         break;
       }
     }
@@ -938,6 +950,21 @@ function spawnPowerup(room) {
   const pu = { type, x: x * C.TILE_SIZE + C.TILE_SIZE / 2, y: y * C.TILE_SIZE + C.TILE_SIZE / 2 };
   room.powerups.push(pu);
   io.to(room.code).emit('powerupSpawned', pu);
+}
+
+function spawnCreditPickup(room) {
+  const isGold = Math.random() < 0.25; // 25% chance of gold (50 CR), else silver (25 CR)
+  const value = isGold ? 50 : 25;
+  let x, y, attempts = 0;
+  do {
+    x = 3 + Math.floor(Math.random() * (C.MAP_WIDTH - 6));
+    y = 3 + Math.floor(Math.random() * (C.MAP_HEIGHT - 6));
+    attempts++;
+  } while (room.map[y][x] !== C.TILE_EMPTY && attempts < 50);
+  if (attempts >= 50) return;
+  const cr = { id: Date.now(), value, x: x * C.TILE_SIZE + C.TILE_SIZE / 2, y: y * C.TILE_SIZE + C.TILE_SIZE / 2 };
+  room.creditPickups.push(cr);
+  io.to(room.code).emit('creditSpawned', cr);
 }
 
 function applyPowerup(player, type) {

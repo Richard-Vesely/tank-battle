@@ -92,149 +92,44 @@ const Renderer = (() => {
     ctx.fillRect(px+4, py+T-7, 3, 3); ctx.fillRect(px+T-7, py+T-7, 3, 3);
   }
 
-  // ─── Fog of War with Shadow Casting ─────────────────────────
-  function drawFogOfWar(centerX, centerY, visionZones, map) {
+  // ─── Fog of War (simple radial) ─────────────────────────────
+  function drawFogOfWar(centerX, centerY, visionZones) {
     const T = CONSTANTS.TILE_SIZE;
     const mapW = CONSTANTS.MAP_WIDTH * T;
     const mapH = CONSTANTS.MAP_HEIGHT * T;
     const maxRadius = visionZones * T * 3.5;
 
-    // Build visibility polygon via raycasting
-    const visPolygon = computeVisibility(centerX, centerY, maxRadius, map);
-
     ctx.save();
 
-    // Fill entire map with darkness, then cut out the visible area
+    // Dark overlay with circular cutout
     ctx.beginPath();
-    // Outer rect (full map) clockwise
     ctx.moveTo(0, 0);
     ctx.lineTo(mapW, 0);
     ctx.lineTo(mapW, mapH);
     ctx.lineTo(0, mapH);
     ctx.closePath();
 
-    // Inner visibility polygon counter-clockwise (creates a hole)
-    if (visPolygon.length > 0) {
-      ctx.moveTo(visPolygon[visPolygon.length - 1].x, visPolygon[visPolygon.length - 1].y);
-      for (let i = visPolygon.length - 2; i >= 0; i--) {
-        ctx.lineTo(visPolygon[i].x, visPolygon[i].y);
-      }
-      ctx.closePath();
+    // Cut out visible circle (counter-clockwise for hole)
+    ctx.moveTo(centerX + maxRadius, centerY);
+    for (let a = 0; a <= Math.PI * 2; a += 0.1) {
+      ctx.lineTo(centerX + Math.cos(-a) * maxRadius, centerY + Math.sin(-a) * maxRadius);
     }
+    ctx.closePath();
 
-    ctx.fillStyle = 'rgba(0,0,0,0.92)';
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
     ctx.fill();
 
-    // Soft edge gradient within visible area
-    const gradient = ctx.createRadialGradient(centerX, centerY, maxRadius * 0.4, centerX, centerY, maxRadius);
+    // Soft fade at the edge
+    const gradient = ctx.createRadialGradient(centerX, centerY, maxRadius * 0.6, centerX, centerY, maxRadius);
     gradient.addColorStop(0, 'rgba(0,0,0,0)');
-    gradient.addColorStop(0.7, 'rgba(0,0,0,0.1)');
-    gradient.addColorStop(1, 'rgba(0,0,0,0.35)');
+    gradient.addColorStop(0.8, 'rgba(0,0,0,0.15)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0.4)');
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(centerX, centerY, maxRadius, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
-  }
-
-  function computeVisibility(cx, cy, maxR, map) {
-    if (!map) return [];
-
-    const T = CONSTANTS.TILE_SIZE;
-    const segments = []; // wall edge segments to cast against
-
-    // Collect wall segments from nearby tiles
-    const tileRange = Math.ceil(maxR / T) + 1;
-    const cTX = Math.floor(cx / T);
-    const cTY = Math.floor(cy / T);
-
-    for (let dy = -tileRange; dy <= tileRange; dy++) {
-      for (let dx = -tileRange; dx <= tileRange; dx++) {
-        const tx = cTX + dx;
-        const ty = cTY + dy;
-        if (tx < 0 || tx >= CONSTANTS.MAP_WIDTH || ty < 0 || ty >= CONSTANTS.MAP_HEIGHT) continue;
-        const tile = map[ty][tx];
-        if (tile === CONSTANTS.TILE_WALL || tile === CONSTANTS.TILE_STEEL || tile === CONSTANTS.TILE_BRICK) {
-          const lx = tx * T, ly = ty * T;
-          const rx = lx + T, by = ly + T;
-          // Only add edges that face the viewer (optimization)
-          // Top edge
-          if (ty === 0 || map[ty-1] === undefined || isTransparent(map[ty-1][tx]))
-            segments.push({ x1: lx, y1: ly, x2: rx, y2: ly });
-          // Bottom edge
-          if (ty === CONSTANTS.MAP_HEIGHT-1 || map[ty+1] === undefined || isTransparent(map[ty+1][tx]))
-            segments.push({ x1: lx, y1: by, x2: rx, y2: by });
-          // Left edge
-          if (tx === 0 || isTransparent(map[ty][tx-1]))
-            segments.push({ x1: lx, y1: ly, x2: lx, y2: by });
-          // Right edge
-          if (tx === CONSTANTS.MAP_WIDTH-1 || isTransparent(map[ty][tx+1]))
-            segments.push({ x1: rx, y1: ly, x2: rx, y2: by });
-        }
-      }
-    }
-
-    // Add map boundary segments
-    segments.push({ x1: 0, y1: 0, x2: CONSTANTS.MAP_WIDTH * T, y2: 0 });
-    segments.push({ x1: CONSTANTS.MAP_WIDTH * T, y1: 0, x2: CONSTANTS.MAP_WIDTH * T, y2: CONSTANTS.MAP_HEIGHT * T });
-    segments.push({ x1: CONSTANTS.MAP_WIDTH * T, y1: CONSTANTS.MAP_HEIGHT * T, x2: 0, y2: CONSTANTS.MAP_HEIGHT * T });
-    segments.push({ x1: 0, y1: CONSTANTS.MAP_HEIGHT * T, x2: 0, y2: 0 });
-
-    // Collect unique angles to cast rays toward segment endpoints
-    const angles = new Set();
-    const TINY = 0.0001;
-    for (const seg of segments) {
-      const a1 = Math.atan2(seg.y1 - cy, seg.x1 - cx);
-      const a2 = Math.atan2(seg.y2 - cy, seg.x2 - cx);
-      angles.add(a1 - TINY);
-      angles.add(a1);
-      angles.add(a1 + TINY);
-      angles.add(a2 - TINY);
-      angles.add(a2);
-      angles.add(a2 + TINY);
-    }
-
-    // Cast rays and find closest intersection
-    const points = [];
-    for (const angle of angles) {
-      const ray = { x: cx, y: cy, dx: Math.cos(angle), dy: Math.sin(angle) };
-      let closestT = maxR;
-
-      for (const seg of segments) {
-        const t = raySegmentIntersect(ray, seg);
-        if (t !== null && t > 0 && t < closestT) {
-          closestT = t;
-        }
-      }
-
-      points.push({
-        angle,
-        x: cx + ray.dx * closestT,
-        y: cy + ray.dy * closestT
-      });
-    }
-
-    // Sort by angle to form polygon
-    points.sort((a, b) => a.angle - b.angle);
-    return points;
-  }
-
-  function isTransparent(tile) {
-    return tile === CONSTANTS.TILE_EMPTY || tile === undefined || tile === CONSTANTS.TILE_CAPTURE;
-  }
-
-  function raySegmentIntersect(ray, seg) {
-    const dx = seg.x2 - seg.x1;
-    const dy = seg.y2 - seg.y1;
-    const denom = ray.dx * dy - ray.dy * dx;
-    if (Math.abs(denom) < 1e-10) return null;
-
-    const t = ((seg.x1 - ray.x) * dy - (seg.y1 - ray.y) * dx) / denom;
-    const u = ((seg.x1 - ray.x) * ray.dy - (seg.y1 - ray.y) * ray.dx) / denom;
-
-    if (t >= 0 && u >= 0 && u <= 1) return t;
-    return null;
   }
 
   // ─── Capture Zones ─────────────────────────────────────────
@@ -408,6 +303,41 @@ const Renderer = (() => {
     ctx.restore();
   }
 
+  function drawCreditPickup(x, y, value) {
+    const pulse = Math.sin(Date.now() / 250) * 2;
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Glow
+    ctx.globalAlpha = 0.3 + Math.sin(Date.now() / 400) * 0.1;
+    ctx.fillStyle = value >= 50 ? '#FFD700' : '#C0C0C0';
+    ctx.beginPath();
+    ctx.arc(0, 0, 10 + pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Coin body
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = value >= 50 ? '#FFD700' : '#B0B0B0';
+    ctx.beginPath();
+    ctx.arc(0, 0, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Inner circle
+    ctx.fillStyle = value >= 50 ? '#FFA000' : '#888';
+    ctx.beginPath();
+    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // CR label
+    ctx.fillStyle = '#FFF';
+    ctx.font = '5px "Press Start 2P"';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('CR', 0, 0);
+
+    ctx.restore();
+  }
+
   function drawMine(x, y, isOwn) {
     ctx.save();
     ctx.translate(x, y);
@@ -494,7 +424,7 @@ const Renderer = (() => {
 
   return {
     init, resize, clear, drawMap, drawFogOfWar,
-    drawCaptureZone, drawTank, drawBullet, drawPowerup,
+    drawCaptureZone, drawTank, drawBullet, drawPowerup, drawCreditPickup,
     drawMine, drawSmoke, drawDeathExplosion, drawEMPBlast, drawTeleportEffect
   };
 })();
