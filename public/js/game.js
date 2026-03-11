@@ -1,4 +1,4 @@
-// Main game controller v2 — upgrade shop, fog of war, abilities, domination
+// Main game controller v3 — stats/abilities, snipe mode, fog of war, domination
 const Game = (() => {
   let myId = null;
   let currentRoom = null;
@@ -7,12 +7,13 @@ const Game = (() => {
   let gameMap = null;
   let state = null;
   let explosions = [];
-  let effects = []; // { type, x, y, startTime, duration }
+  let effects = [];
   let shopOpen = false;
   let lastInputSent = 0;
   let lastInput = '';
   let selectedMode = CONSTANTS.MODE_DOMINATION;
   let selectedPenalty = CONSTANTS.DEATH_KEEP_UPGRADES;
+  let snipeMode = false;
 
   // DOM refs
   let screens = {};
@@ -170,6 +171,7 @@ const Game = (() => {
       explosions = [];
       effects = [];
       shopOpen = false;
+      snipeMode = false;
       if (els.shop) els.shop.classList.remove('show');
       showScreen('game');
       showMessage('GO!', 1500);
@@ -201,7 +203,19 @@ const Game = (() => {
     });
 
     Network.on('upgradeSuccess', (data) => {
-      showMessage(`${CONSTANTS.UPGRADES[data.key].name} LVL ${data.level}`, 1500);
+      const label = data.type === 'stat'
+        ? CONSTANTS.STATS[data.key].name
+        : CONSTANTS.ABILITIES[data.key].name;
+      showMessage(`${label} LVL ${data.level}`, 1500);
+      // Update local state immediately so shop reflects changes
+      if (state && state.players) {
+        const me = state.players.find(p => p.id === myId);
+        if (me) {
+          me.currency = data.currency;
+          me.stats = data.stats;
+          me.abilities = data.abilities;
+        }
+      }
       if (shopOpen) renderShop();
     });
 
@@ -220,9 +234,26 @@ const Game = (() => {
     });
 
     Network.on('abilityUsed', (data) => {
-      if (data.ability === 'emp') effects.push({ type: 'emp', x: data.x, y: data.y, startTime: Date.now(), duration: 600 });
-      if (data.ability === 'teleport') effects.push({ type: 'teleport', x: data.x, y: data.y, startTime: Date.now(), duration: 500 });
-      if (data.ability === 'dash' && data.id === myId) showMessage('DASH!', 500);
+      if (data.ability === 'regenBurst') {
+        effects.push({ type: 'regenBurst', x: data.x, y: data.y, startTime: Date.now(), duration: 600 });
+        if (data.id === myId) showMessage('REGEN!', 500);
+      }
+      if (data.ability === 'reveal' && data.id === myId) {
+        showMessage('REVEALED!', 1000);
+      }
+      // Duration ability activation messages for self
+      if (data.id === myId) {
+        const durationNames = { berserk: 'BERSERK!', speedBoost: 'SPEED BOOST!', vampire: 'VAMPIRE!', hide: 'STEALTH!' };
+        if (durationNames[data.ability]) showMessage(durationNames[data.ability], 800);
+      }
+    });
+
+    Network.on('snipeImpact', (data) => {
+      effects.push({ type: 'snipeImpact', x: data.x, y: data.y, radius: data.radius, startTime: Date.now(), duration: 600 });
+    });
+
+    Network.on('vampireProc', (data) => {
+      if (data.id === myId) showMessage(`VAMPIRE: +${data.bonusCR} CR, +${data.heal} HP`, 1500);
     });
 
     Network.on('mineExploded', (data) => {
@@ -281,37 +312,50 @@ const Game = (() => {
     const me = state.players.find(p => p.id === myId);
     if (!me) return;
 
-    const categories = ['firepower', 'mobility', 'defense', 'utility'];
-    const catLabels = { firepower: 'FIREPOWER', mobility: 'MOBILITY', defense: 'DEFENSE', utility: 'UTILITY' };
+    const myCurrency = me.currency || 0;
+    let html = `<div class="shop-header">SHOP <span class="shop-currency">${myCurrency} CR</span></div>`;
 
-    let html = `<div class="shop-header">UPGRADES <span class="shop-currency">${me.currency || 0} CR</span></div>`;
+    // ─── STATS section ─────
+    html += '<div class="shop-section-title">STATS</div>';
+    const statKeys = CONSTANTS.QUICKBUY_STATS;
+    statKeys.forEach((key, idx) => {
+      const def = CONSTANTS.STATS[key];
+      const lvl = (me.stats && me.stats[key]) || 0;
+      const maxed = lvl >= def.maxLevel;
+      const cost = maxed ? '-' : def.costs[lvl];
+      const canBuy = !maxed && myCurrency >= cost;
 
-    categories.forEach(cat => {
-      html += `<div class="shop-category"><div class="shop-cat-title">${catLabels[cat]}</div>`;
-      const quickSlots = CONSTANTS.QUICKBUY_SLOTS;
-      for (const [key, def] of Object.entries(CONSTANTS.UPGRADES)) {
-        if (def.category !== cat) continue;
-        const lvl = (me.upgrades && me.upgrades[key]) || 0;
-        const maxed = lvl >= def.maxLevel;
-        const cost = maxed ? '-' : def.costs[lvl];
-        const canBuy = !maxed && (me.currency || 0) >= cost;
-        const qIdx = quickSlots.indexOf(key);
-        const hotkey = qIdx >= 0 ? `[${qIdx + 1}]` : '';
-
-        html += `<div class="shop-item ${canBuy ? 'buyable' : ''} ${maxed ? 'maxed' : ''}" data-key="${key}">
-          <span class="shop-item-name">${def.name}</span>
-          <span class="shop-item-level">${'\u25A0'.repeat(lvl)}${'\u25A1'.repeat(def.maxLevel - lvl)}</span>
-          <span class="shop-item-cost">${maxed ? 'MAX' : cost + ' CR'}</span>
-          ${hotkey ? `<span class="shop-hotkey">${hotkey}</span>` : ''}
-        </div>`;
-      }
-      html += '</div>';
+      html += `<div class="shop-item ${canBuy ? 'buyable' : ''} ${maxed ? 'maxed' : ''}" data-type="stat" data-key="${key}">
+        <span class="shop-item-name">${def.name}</span>
+        <span class="shop-item-level">${'\u25A0'.repeat(lvl)}${'\u25A1'.repeat(def.maxLevel - lvl)}</span>
+        <span class="shop-item-cost">${maxed ? 'MAX' : cost + ' CR'}</span>
+        <span class="shop-hotkey">[${idx + 1}]</span>
+      </div>`;
     });
+
+    // ─── ABILITIES section ─────
+    html += '<div class="shop-section-title">ABILITIES</div>';
+    for (const [key, def] of Object.entries(CONSTANTS.ABILITIES)) {
+      const lvl = (me.abilities && me.abilities[key]) || 0;
+      const maxed = lvl >= def.maxLevel;
+      const cost = maxed ? '-' : def.costs[lvl];
+      const canBuy = !maxed && myCurrency >= cost;
+      const label = lvl === 0 ? 'BUY' : (maxed ? 'MAX' : 'UPG');
+
+      html += `<div class="shop-item ${canBuy ? 'buyable' : ''} ${maxed ? 'maxed' : ''}" data-type="ability" data-key="${key}">
+        <span class="shop-item-name">[${def.key}] ${def.name}</span>
+        <span class="shop-item-level">${'\u25A0'.repeat(lvl)}${'\u25A1'.repeat(def.maxLevel - lvl)}</span>
+        <span class="shop-item-cost">${maxed ? 'MAX' : cost + ' CR'}</span>
+        <span class="shop-item-label">${label}</span>
+      </div>`;
+    }
 
     els.shopContent.innerHTML = html;
 
     els.shopContent.querySelectorAll('.shop-item.buyable').forEach(el => {
-      el.addEventListener('click', () => Network.emit('purchaseUpgrade', { key: el.dataset.key }));
+      el.addEventListener('click', () => {
+        Network.emit('purchase', { type: el.dataset.type, key: el.dataset.key });
+      });
     });
   }
 
@@ -380,16 +424,39 @@ const Game = (() => {
       }
     }
 
-    // Abilities
-    if (els.abilities && me.upgrades) {
+    // Abilities HUD
+    if (els.abilities && me.abilities) {
       let abHtml = '';
-      if (me.upgrades.dash) abHtml += '<span class="ability-icon" title="Shift">DASH</span>';
-      if (me.upgrades.teleport) abHtml += '<span class="ability-icon" title="T">TELE</span>';
-      if (me.upgrades.emp) abHtml += '<span class="ability-icon" title="E">EMP</span>';
-      if (me.upgrades.smoke) abHtml += '<span class="ability-icon" title="Q">SMK</span>';
-      if (me.upgrades.mine) abHtml += '<span class="ability-icon" title="X">MINE</span>';
+      for (const [key, def] of Object.entries(CONSTANTS.ABILITIES)) {
+        const lvl = me.abilities[key] || 0;
+        if (lvl === 0) continue;
+        const cd = (me.abilityCooldowns && me.abilityCooldowns[key]) || 0;
+        const isActive = me.activeEffects && me.activeEffects.includes(key);
+        const onCooldown = cd > 0;
+        const cdText = onCooldown ? `${Math.ceil(cd / 1000)}s` : '';
+        abHtml += `<span class="ability-icon ${isActive ? 'active' : ''} ${onCooldown ? 'cooldown' : ''}" title="${def.key}">
+          ${def.key}:${def.name.substring(0, 4)}${cdText ? ' ' + cdText : ''}
+        </span>`;
+      }
       els.abilities.innerHTML = abHtml;
     }
+
+    // Snipe mode indicator
+    if (snipeMode) {
+      els.abilities.innerHTML += '<span class="ability-icon active">AIM...</span>';
+    }
+  }
+
+  // ─── Screen-to-World conversion for snipe ───────────────────
+  function screenToWorld(screenX, screenY) {
+    const canvas = document.getElementById('game-canvas');
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (screenX - rect.left) * scaleX,
+      y: (screenY - rect.top) * scaleY
+    };
   }
 
   // ─── Game Loop ──────────────────────────────────────────────
@@ -400,23 +467,38 @@ const Game = (() => {
     const now = Date.now();
     const input = Input.getInput();
 
-    // Escape to leave game (returns to lobby)
+    // Escape to leave game or cancel snipe
     if (Input.isJustPressed('Escape')) {
-      location.reload();
-      return;
+      if (snipeMode) {
+        snipeMode = false;
+      } else {
+        location.reload();
+        return;
+      }
     }
 
     // Shop toggle (Tab)
     if (Input.isJustPressed('Tab')) toggleShop();
 
-    // Quick-buy keys 1-9
-    for (let i = 0; i < CONSTANTS.QUICKBUY_SLOTS.length; i++) {
+    // Quick-buy keys 1-4 for stats
+    for (let i = 0; i < CONSTANTS.QUICKBUY_STATS.length; i++) {
       if (Input.isJustPressed(`Digit${i + 1}`)) {
-        Network.emit('purchaseUpgrade', { key: CONSTANTS.QUICKBUY_SLOTS[i] });
+        Network.emit('purchase', { type: 'stat', key: CONSTANTS.QUICKBUY_STATS[i] });
       }
     }
 
-    // Send input (throttled) — always send, even when shop is open
+    // Snipe mode: press F to enter, click to fire
+    if (Input.isJustPressed('KeyF') && !snipeMode) {
+      snipeMode = true;
+    }
+    if (snipeMode && Input.consumeClick()) {
+      const mouse = Input.getMousePosition();
+      const world = screenToWorld(mouse.x, mouse.y);
+      Network.emit('snipeFire', { x: world.x, y: world.y });
+      snipeMode = false;
+    }
+
+    // Send input (throttled)
     if (now - lastInputSent > 33) {
       const inputStr = JSON.stringify(input);
       if (inputStr !== lastInput) {
@@ -449,11 +531,6 @@ const Game = (() => {
       state.mines.forEach(m => Renderer.drawMine(m.x, m.y, m.owner === myId));
     }
 
-    // Smokes
-    if (state.smokes) {
-      state.smokes.forEach(s => Renderer.drawSmoke(s.x, s.y, s.radius || CONSTANTS.SMOKE_RADIUS));
-    }
-
     // Credit pickups
     if (state.creditPickups) {
       state.creditPickups.forEach(c => Renderer.drawCreditPickup(c.x, c.y, c.value));
@@ -463,7 +540,7 @@ const Game = (() => {
     if (state.players) {
       state.players.forEach(p => {
         if (p.visible === false) return;
-        Renderer.drawTank(p.x, p.y, p.angle, p.colorIndex, p.hp, p.maxHp, p.alive, p.name, p.shieldActive, p.empDisabled, p.upgrades);
+        Renderer.drawTank(p.x, p.y, p.angle, p.colorIndex, p.hp, p.maxHp, p.alive, p.name, p.shieldActive, p.activeEffects);
       });
     }
 
@@ -485,14 +562,29 @@ const Game = (() => {
       const e = effects[i];
       const progress = (now - e.startTime) / e.duration;
       if (progress >= 1) { effects.splice(i, 1); continue; }
-      if (e.type === 'emp') Renderer.drawEMPBlast(e.x, e.y, progress);
-      else if (e.type === 'teleport') Renderer.drawTeleportEffect(e.x, e.y, progress);
+      if (e.type === 'snipeImpact') Renderer.drawSnipeImpact(e.x, e.y, e.radius, progress);
+      else if (e.type === 'regenBurst') Renderer.drawRegenBurst(e.x, e.y, progress);
       else Renderer.drawDeathExplosion(e.x, e.y, progress);
     }
 
-    // Fog of War (drawn last, on top of everything)
+    // Fog of War
     if (state.fogCenter) {
-      Renderer.drawFogOfWar(state.fogCenter.x, state.fogCenter.y, state.visionZones);
+      const me = state.players.find(p => p.id === myId);
+      const revealZones = (me && me.revealZones) || [];
+      Renderer.drawFogOfWar(state.fogCenter.x, state.fogCenter.y, state.visionZones, revealZones);
+    }
+
+    // Snipe targeting reticle (drawn on top of fog)
+    if (snipeMode) {
+      const mouse = Input.getMousePosition();
+      const world = screenToWorld(mouse.x, mouse.y);
+      const me = state.players.find(p => p.id === myId);
+      let radius = 30;
+      if (me && me.abilities && me.abilities.snipe) {
+        const lvl = me.abilities.snipe;
+        radius = CONSTANTS.ABILITIES.snipe.radius[lvl - 1];
+      }
+      Renderer.drawSnipeReticle(world.x, world.y, radius);
     }
 
     updateHUD();

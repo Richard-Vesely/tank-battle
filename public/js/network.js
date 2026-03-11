@@ -1,4 +1,4 @@
-// Network communication via Socket.IO — v2
+// Network communication via Socket.IO — v3
 const Network = (() => {
   let socket;
   const handlers = {};
@@ -14,7 +14,10 @@ const Network = (() => {
       'shieldBreak', 'error',
       // v2 events
       'currencyEarned', 'upgradeSuccess', 'abilityUsed',
-      'minePlaced', 'mineExploded', 'zoneCaptured'
+      'minePlaced', 'mineExploded', 'zoneCaptured',
+      'creditSpawned', 'creditCollected',
+      // v3 events
+      'snipeImpact', 'vampireProc'
     ];
 
     events.forEach(event => {

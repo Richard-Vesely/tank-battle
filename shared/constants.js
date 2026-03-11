@@ -45,59 +45,49 @@ const CONSTANTS = {
   SPEED_BOOST: 1.5,
   RAPID_FIRE_COOLDOWN: 350,
 
-  // ─── Upgrade System ───────────────────────────────────────
-  KILL_CURRENCY: 100,       // currency earned per kill
-  ASSIST_CURRENCY: 30,      // currency for assists (damage dealt)
-  PASSIVE_INCOME_AMOUNT: 5, // credits earned passively
-  PASSIVE_INCOME_INTERVAL: 3000, // ms between passive income ticks
-  CREDIT_SPAWN_INTERVAL: 8000,   // ms between credit pickup spawns
-  CREDIT_MAX_ON_MAP: 5,          // max credit pickups on map at once
+  // ─── Currency ────────────────────────────────────────────
+  KILL_CURRENCY: 100,
+  ASSIST_CURRENCY: 30,
+  CREDIT_SPAWN_INTERVAL: 8000,
+  CREDIT_MAX_ON_MAP: 5,
 
-  // Upgrade categories and costs
-  UPGRADES: {
-    // Firepower
-    damage:      { name: 'Damage+',       category: 'firepower', maxLevel: 3, costs: [100, 200, 350], values: [25, 30, 40] },
-    reload:      { name: 'Reload Speed',  category: 'firepower', maxLevel: 3, costs: [100, 200, 350], values: [600, 500, 400] },
-    bulletSpeed: { name: 'Bullet Speed',  category: 'firepower', maxLevel: 2, costs: [150, 300], values: [240, 280] },
-    doubleShot:  { name: 'Double Shot',   category: 'firepower', maxLevel: 1, costs: [400], values: [true] },
-    ricochet:    { name: 'Ricochet+',     category: 'firepower', maxLevel: 2, costs: [150, 350], values: [2, 3] },
-
-    // Mobility
-    speed:       { name: 'Speed+',        category: 'mobility', maxLevel: 3, costs: [100, 200, 350], values: [90, 105, 120] },
-    rotation:    { name: 'Turn Speed',    category: 'mobility', maxLevel: 2, costs: [100, 200], values: [160, 190] },
-    dash:        { name: 'Dash',          category: 'mobility', maxLevel: 1, costs: [250], values: [true] },
-    breaker:     { name: 'Brick Breaker', category: 'mobility', maxLevel: 1, costs: [200], values: [true] },
-
-    // Defense
-    maxHp:       { name: 'Max HP+',       category: 'defense', maxLevel: 3, costs: [100, 200, 350], values: [180, 210, 250] },
-    armor:       { name: 'Armor',         category: 'defense', maxLevel: 3, costs: [150, 250, 400], values: [0.85, 0.7, 0.55] },
-    regen:       { name: 'Regen',         category: 'defense', maxLevel: 2, costs: [200, 350], values: [2, 4] },
-    mine:        { name: 'Mines',         category: 'defense', maxLevel: 1, costs: [300], values: [true] },
-
-    // Utility
-    radar:       { name: 'Radar',         category: 'utility', maxLevel: 3, costs: [150, 250, 400], values: [2, 3, 4] },
-    stealth:     { name: 'Stealth',       category: 'utility', maxLevel: 3, costs: [200, 350, 500], values: [1, 2, 3] },
-    teleport:    { name: 'Teleport',      category: 'utility', maxLevel: 1, costs: [350], values: [true] },
-    emp:         { name: 'EMP Blast',     category: 'utility', maxLevel: 1, costs: [400], values: [true] },
-    smoke:       { name: 'Smoke Screen',  category: 'utility', maxLevel: 1, costs: [200], values: [true] }
+  // ─── Stats (bundled, 5 levels each) ─────────────────────
+  STATS: {
+    firepower:  { name: 'Firepower',  maxLevel: 5, costs: [75, 150, 250, 400, 600],
+      damage: [22, 25, 30, 36, 44], fireCooldown: [650, 600, 540, 470, 400], bulletSpeed: [215, 230, 250, 275, 310] },
+    mobility:   { name: 'Mobility',   maxLevel: 5, costs: [75, 150, 250, 400, 600],
+      moveSpeed: [85, 95, 108, 122, 140], rotationSpeed: [145, 160, 178, 198, 225] },
+    defense:    { name: 'Defense',    maxLevel: 5, costs: [75, 150, 250, 400, 600],
+      maxHp: [170, 195, 225, 265, 320], armor: [0.92, 0.84, 0.76, 0.67, 0.55] },
+    perception: { name: 'Perception', maxLevel: 5, costs: [75, 150, 250, 400, 600],
+      visionZones: [3.5, 4, 4.5, 5, 6] },
   },
 
-  // Quick-buy key bindings (number keys 1-9)
-  QUICKBUY_SLOTS: ['damage', 'reload', 'speed', 'maxHp', 'armor', 'radar', 'stealth', 'teleport', 'dash'],
+  // Quick-buy key bindings (number keys 1-4)
+  QUICKBUY_STATS: ['firepower', 'mobility', 'defense', 'perception'],
 
-  // Ability cooldowns (ms)
-  DASH_COOLDOWN: 5000,
-  DASH_DISTANCE: 80,
-  TELEPORT_COOLDOWN: 12000,
-  TELEPORT_RANGE: 200,
-  EMP_COOLDOWN: 15000,
-  EMP_RADIUS: 120,
-  EMP_DURATION: 2000,
-  SMOKE_COOLDOWN: 8000,
-  SMOKE_RADIUS: 60,
-  SMOKE_DURATION: 5000,
-  MINE_COOLDOWN: 6000,
-  MINE_DAMAGE: 50,
+  // ─── Abilities (purchasable + upgradeable, 3 levels) ────
+  ABILITIES: {
+    // Duration abilities (all 5s)
+    berserk:    { name: 'Berserk',      key: 'Q', type: 'duration', maxLevel: 3, costs: [150, 250, 400],
+      duration: 5000, damageMult: [1.3, 1.5, 1.75], fireRateMult: [0.75, 0.6, 0.45], cooldown: [20000, 16000, 12000] },
+    speedBoost: { name: 'Speed Boost',  key: 'W', type: 'duration', maxLevel: 3, costs: [150, 250, 400],
+      duration: 5000, speedMult: [1.4, 1.6, 1.85], cooldown: [18000, 14000, 10000] },
+    vampire:    { name: 'Vampire',      key: 'E', type: 'duration', maxLevel: 3, costs: [200, 300, 450],
+      duration: 5000, bonusCR: [40, 70, 110], healPercent: [0.15, 0.25, 0.40], cooldown: [25000, 20000, 15000] },
+    hide:       { name: 'Hide',         key: 'R', type: 'duration', maxLevel: 3, costs: [200, 300, 450],
+      duration: 5000, stealthZones: [1, 2, 3], cooldown: [22000, 17000, 12000] },
+    // Instant abilities
+    snipe:      { name: 'Snipe',        key: 'F', type: 'instant', maxLevel: 3, costs: [250, 375, 500],
+      damage: [60, 90, 130], radius: [30, 45, 65], cooldown: [15000, 12000, 9000] },
+    regenBurst: { name: 'Regen Burst',  key: 'G', type: 'instant', maxLevel: 3, costs: [150, 250, 400],
+      healAmount: [50, 80, 120], cooldown: [18000, 14000, 10000] },
+    reveal:     { name: 'Reveal',       key: 'C', type: 'instant', maxLevel: 3, costs: [150, 250, 400],
+      radius: [5, 8, 12], revealDuration: [4000, 5000, 6000], cooldown: [20000, 16000, 12000] },
+    mine:       { name: 'Mine',         key: 'X', type: 'instant', maxLevel: 3, costs: [150, 250, 400],
+      damage: [50, 75, 110], cooldown: [8000, 6000, 4000] },
+  },
+
   MINE_RADIUS: 40,
 
   // ─── Fog of War ───────────────────────────────────────────

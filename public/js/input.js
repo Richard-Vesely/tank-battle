@@ -1,7 +1,9 @@
-// Keyboard input handler v2 — includes ability keys and shop toggle
+// Keyboard + mouse input handler — v3 stats/abilities
 const Input = (() => {
   const keys = {};
   const justPressed = {};
+  let mouseX = 0, mouseY = 0;
+  let mouseClicked = false;
 
   function init() {
     window.addEventListener('keydown', (e) => {
@@ -19,21 +21,34 @@ const Input = (() => {
     window.addEventListener('blur', () => {
       for (const key in keys) keys[key] = false;
     });
+
+    window.addEventListener('mousemove', (e) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+
+    window.addEventListener('click', (e) => {
+      mouseClicked = true;
+    });
   }
 
   function getInput() {
     return {
-      up: keys['ArrowUp'] || keys['KeyW'] || false,
-      down: keys['ArrowDown'] || keys['KeyS'] || false,
-      left: keys['ArrowLeft'] || keys['KeyA'] || false,
-      right: keys['ArrowRight'] || keys['KeyD'] || false,
+      up: keys['ArrowUp'] || false,
+      down: keys['ArrowDown'] || false,
+      left: keys['ArrowLeft'] || false,
+      right: keys['ArrowRight'] || false,
       fire: keys['Space'] || false,
-      // Abilities
-      dash: keys['ShiftLeft'] || keys['ShiftRight'] || false,
-      teleport: keys['KeyT'] || false,
-      emp: keys['KeyE'] || false,
-      smoke: keys['KeyQ'] || false,
+      // Duration abilities
+      berserk: keys['KeyQ'] || false,
+      speedBoost: keys['KeyW'] || false,
+      vampire: keys['KeyE'] || false,
+      hide: keys['KeyR'] || false,
+      // Instant abilities
+      regenBurst: keys['KeyG'] || false,
+      reveal: keys['KeyC'] || false,
       mine: keys['KeyX'] || false,
+      // Snipe handled via snipe mode in game.js
     };
   }
 
@@ -53,5 +68,17 @@ const Input = (() => {
     for (const key in justPressed) justPressed[key] = false;
   }
 
-  return { init, getInput, isJustPressed, isKeyDown, clearJustPressed };
+  function getMousePosition() {
+    return { x: mouseX, y: mouseY };
+  }
+
+  function consumeClick() {
+    if (mouseClicked) {
+      mouseClicked = false;
+      return true;
+    }
+    return false;
+  }
+
+  return { init, getInput, isJustPressed, isKeyDown, clearJustPressed, getMousePosition, consumeClick };
 })();

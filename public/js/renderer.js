@@ -1,4 +1,4 @@
-// Retro pixel-art renderer v2 — with fog of war, capture zones, new effects
+// Retro pixel-art renderer v3 — stats/abilities VFX, fog with reveal zones
 const Renderer = (() => {
   let canvas, ctx;
 
@@ -9,12 +9,10 @@ const Renderer = (() => {
     steel: '#7f8c8d', steelHighlight: '#95a5a6', steelShadow: '#606b6c',
     ground: '#3d3d2e', groundDot: '#35352a',
     bullet: '#FFD700', bulletGlow: '#FFA500',
-    fog: 'rgba(0,0,0,',  // alpha appended per zone
   };
 
   const POWERUP_COLORS = { speed: '#00BCD4', rapid: '#FF5722', shield: '#9C27B0', heal: '#4CAF50' };
   const POWERUP_ICONS = { speed: 'SPD', rapid: 'RPD', shield: 'SHD', heal: '+HP' };
-  const ZONE_COLORS = ['#4CAF50', '#2196F3', '#FF9800', '#E91E63']; // per player
 
   function init(canvasEl) {
     canvas = canvasEl;
@@ -92,8 +90,8 @@ const Renderer = (() => {
     ctx.fillRect(px+4, py+T-7, 3, 3); ctx.fillRect(px+T-7, py+T-7, 3, 3);
   }
 
-  // ─── Fog of War (simple radial) ─────────────────────────────
-  function drawFogOfWar(centerX, centerY, visionZones) {
+  // ─── Fog of War (radial + reveal zones) ─────────────────────
+  function drawFogOfWar(centerX, centerY, visionZones, revealZones) {
     const T = CONSTANTS.TILE_SIZE;
     const mapW = CONSTANTS.MAP_WIDTH * T;
     const mapH = CONSTANTS.MAP_HEIGHT * T;
@@ -101,7 +99,7 @@ const Renderer = (() => {
 
     ctx.save();
 
-    // Dark overlay with circular cutout
+    // Dark overlay with circular cutouts
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(mapW, 0);
@@ -109,17 +107,28 @@ const Renderer = (() => {
     ctx.lineTo(0, mapH);
     ctx.closePath();
 
-    // Cut out visible circle (counter-clockwise for hole)
+    // Main vision circle (counter-clockwise for hole)
     ctx.moveTo(centerX + maxRadius, centerY);
     for (let a = 0; a <= Math.PI * 2; a += 0.1) {
       ctx.lineTo(centerX + Math.cos(-a) * maxRadius, centerY + Math.sin(-a) * maxRadius);
     }
     ctx.closePath();
 
+    // Reveal zone cutouts
+    if (revealZones) {
+      for (const rz of revealZones) {
+        ctx.moveTo(rz.x + rz.radius, rz.y);
+        for (let a = 0; a <= Math.PI * 2; a += 0.1) {
+          ctx.lineTo(rz.x + Math.cos(-a) * rz.radius, rz.y + Math.sin(-a) * rz.radius);
+        }
+        ctx.closePath();
+      }
+    }
+
     ctx.fillStyle = 'rgba(0,0,0,0.85)';
     ctx.fill();
 
-    // Soft fade at the edge
+    // Soft fade at vision edge
     const gradient = ctx.createRadialGradient(centerX, centerY, maxRadius * 0.6, centerX, centerY, maxRadius);
     gradient.addColorStop(0, 'rgba(0,0,0,0)');
     gradient.addColorStop(0.8, 'rgba(0,0,0,0.15)');
@@ -128,6 +137,18 @@ const Renderer = (() => {
     ctx.beginPath();
     ctx.arc(centerX, centerY, maxRadius, 0, Math.PI * 2);
     ctx.fill();
+
+    // Reveal zone glow borders
+    if (revealZones) {
+      for (const rz of revealZones) {
+        ctx.strokeStyle = '#00BCD4';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.4 + Math.sin(Date.now() / 300) * 0.2;
+        ctx.beginPath();
+        ctx.arc(rz.x, rz.y, rz.radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
 
     ctx.restore();
   }
@@ -143,14 +164,12 @@ const Renderer = (() => {
     const ownerColor = zone.owner ? getPlayerColor(zone.owner, players) : '#666';
     const pulse = 0.15 + Math.sin(Date.now() / 500) * 0.05;
 
-    // Zone circle
     ctx.globalAlpha = pulse;
     ctx.fillStyle = ownerColor;
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Border
     ctx.globalAlpha = 0.6;
     ctx.strokeStyle = ownerColor;
     ctx.lineWidth = 2;
@@ -158,7 +177,6 @@ const Renderer = (() => {
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Label
     ctx.globalAlpha = 0.8;
     ctx.fillStyle = '#FFF';
     ctx.font = '10px "Press Start 2P"';
@@ -175,12 +193,20 @@ const Renderer = (() => {
   }
 
   // ─── Tank ──────────────────────────────────────────────────
-  function drawTank(x, y, angle, colorIndex, hp, maxHp, alive, name, shieldActive, empDisabled, upgrades) {
+  function drawTank(x, y, angle, colorIndex, hp, maxHp, alive, name, shieldActive, activeEffects) {
     if (!alive) return;
 
     const color = CONSTANTS.TANK_COLORS[colorIndex];
     const size = CONSTANTS.TANK_SIZE;
     const hs = size / 2;
+    const effects = activeEffects || [];
+
+    // Hide effect: semi-transparent
+    const isHiding = effects.includes('hide');
+    if (isHiding) {
+      ctx.save();
+      ctx.globalAlpha = 0.35 + Math.sin(Date.now() / 200) * 0.1;
+    }
 
     ctx.save();
     ctx.translate(x, y);
@@ -197,12 +223,12 @@ const Renderer = (() => {
     }
 
     // Body
-    ctx.fillStyle = empDisabled ? '#555' : color;
+    ctx.fillStyle = color;
     ctx.fillRect(-hs + 4, -hs + 2, size - 8, size - 4);
-    ctx.fillStyle = lightenColor(empDisabled ? '#555' : color, 0.2);
+    ctx.fillStyle = lightenColor(color, 0.2);
     ctx.fillRect(-hs + 4, -hs + 2, size - 8, 2);
     ctx.fillRect(-hs + 4, -hs + 2, 2, size - 4);
-    ctx.fillStyle = darkenColor(empDisabled ? '#555' : color, 0.2);
+    ctx.fillStyle = darkenColor(color, 0.2);
     ctx.fillRect(-hs + 4, hs - 4, size - 8, 2);
     ctx.fillRect(hs - 6, -hs + 2, 2, size - 4);
 
@@ -216,14 +242,62 @@ const Renderer = (() => {
     ctx.fillStyle = '#888';
     ctx.fillRect(-3, -hs - 4, 6, 3);
 
-    // Double barrel indicator
-    if (upgrades && upgrades.doubleShot) {
-      ctx.fillStyle = darkenColor(color, 0.3);
-      ctx.fillRect(3, -hs - 4, 3, hs - 2);
-      ctx.fillRect(-6, -hs - 4, 3, hs - 2);
+    ctx.restore();
+
+    if (isHiding) ctx.restore();
+
+    // Berserk aura (red pulse)
+    if (effects.includes('berserk')) {
+      ctx.save();
+      ctx.globalAlpha = 0.3 + Math.sin(Date.now() / 150) * 0.15;
+      ctx.strokeStyle = '#FF1744';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, hs + 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#FF1744';
+      ctx.globalAlpha = 0.1;
+      ctx.beginPath();
+      ctx.arc(x, y, hs + 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
 
-    ctx.restore();
+    // Speed boost trail (blue)
+    if (effects.includes('speedBoost')) {
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = '#2196F3';
+      const rad = (angle * Math.PI) / 180;
+      for (let i = 1; i <= 3; i++) {
+        ctx.globalAlpha = 0.3 - i * 0.08;
+        ctx.fillRect(
+          x - Math.sin(rad) * (i * 8) - 3,
+          y + Math.cos(rad) * (i * 8) - 3,
+          6, 6
+        );
+      }
+      ctx.restore();
+    }
+
+    // Vampire aura (purple)
+    if (effects.includes('vampire')) {
+      ctx.save();
+      ctx.globalAlpha = 0.25 + Math.sin(Date.now() / 200) * 0.1;
+      ctx.strokeStyle = '#9C27B0';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, hs + 5, 0, Math.PI * 2);
+      ctx.stroke();
+      // Small drain particles
+      for (let i = 0; i < 4; i++) {
+        const a = (Date.now() / 400 + i * 1.57);
+        const d = hs + 2 + Math.sin(Date.now() / 200 + i) * 4;
+        ctx.fillStyle = '#CE93D8';
+        ctx.fillRect(x + Math.cos(a) * d - 1, y + Math.sin(a) * d - 1, 2, 2);
+      }
+      ctx.restore();
+    }
 
     // Shield
     if (shieldActive) {
@@ -234,22 +308,6 @@ const Renderer = (() => {
       ctx.beginPath();
       ctx.arc(x, y, hs + 4, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.restore();
-    }
-
-    // EMP disabled indicator
-    if (empDisabled) {
-      ctx.save();
-      ctx.strokeStyle = '#FF0';
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.4 + Math.sin(Date.now() / 100) * 0.4;
-      for (let i = 0; i < 4; i++) {
-        const a = (Date.now() / 200 + i * 1.57);
-        ctx.beginPath();
-        ctx.moveTo(x + Math.cos(a) * (hs+2), y + Math.sin(a) * (hs+2));
-        ctx.lineTo(x + Math.cos(a) * (hs+8), y + Math.sin(a) * (hs+8));
-        ctx.stroke();
-      }
       ctx.restore();
     }
 
@@ -307,34 +365,25 @@ const Renderer = (() => {
     const pulse = Math.sin(Date.now() / 250) * 2;
     ctx.save();
     ctx.translate(x, y);
-
-    // Glow
     ctx.globalAlpha = 0.3 + Math.sin(Date.now() / 400) * 0.1;
     ctx.fillStyle = value >= 50 ? '#FFD700' : '#C0C0C0';
     ctx.beginPath();
     ctx.arc(0, 0, 10 + pulse, 0, Math.PI * 2);
     ctx.fill();
-
-    // Coin body
     ctx.globalAlpha = 1;
     ctx.fillStyle = value >= 50 ? '#FFD700' : '#B0B0B0';
     ctx.beginPath();
     ctx.arc(0, 0, 7, 0, Math.PI * 2);
     ctx.fill();
-
-    // Inner circle
     ctx.fillStyle = value >= 50 ? '#FFA000' : '#888';
     ctx.beginPath();
     ctx.arc(0, 0, 4, 0, Math.PI * 2);
     ctx.fill();
-
-    // CR label
     ctx.fillStyle = '#FFF';
     ctx.font = '5px "Press Start 2P"';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('CR', 0, 0);
-
     ctx.restore();
   }
 
@@ -353,16 +402,6 @@ const Renderer = (() => {
       ctx.arc(0, 0, CONSTANTS.MINE_RADIUS, 0, Math.PI * 2);
       ctx.stroke();
     }
-    ctx.restore();
-  }
-
-  function drawSmoke(x, y, radius) {
-    ctx.save();
-    ctx.globalAlpha = 0.4 + Math.sin(Date.now() / 300) * 0.1;
-    ctx.fillStyle = '#888';
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fill();
     ctx.restore();
   }
 
@@ -385,26 +424,60 @@ const Renderer = (() => {
     ctx.restore();
   }
 
-  function drawEMPBlast(x, y, progress) {
+  // ─── New Ability VFX ─────────────────────────────────────────
+  function drawSnipeReticle(x, y, radius) {
     ctx.save();
-    ctx.globalAlpha = (1 - progress) * 0.5;
-    ctx.strokeStyle = '#00BCD4';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#FF1744';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.6 + Math.sin(Date.now() / 150) * 0.2;
     ctx.beginPath();
-    ctx.arc(x, y, CONSTANTS.EMP_RADIUS * progress, 0, Math.PI * 2);
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.stroke();
+    // Crosshair lines
+    ctx.beginPath();
+    ctx.moveTo(x - radius - 5, y); ctx.lineTo(x - radius / 2, y);
+    ctx.moveTo(x + radius / 2, y); ctx.lineTo(x + radius + 5, y);
+    ctx.moveTo(x, y - radius - 5); ctx.lineTo(x, y - radius / 2);
+    ctx.moveTo(x, y + radius / 2); ctx.lineTo(x, y + radius + 5);
+    ctx.stroke();
+    // Center dot
+    ctx.fillStyle = '#FF1744';
+    ctx.fillRect(x - 1, y - 1, 2, 2);
     ctx.restore();
   }
 
-  function drawTeleportEffect(x, y, progress) {
+  function drawSnipeImpact(x, y, radius, progress) {
+    ctx.save();
+    ctx.globalAlpha = (1 - progress) * 0.6;
+    ctx.strokeStyle = '#FF1744';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(x, y, radius * (0.5 + progress * 0.5), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#FF5722';
+    ctx.globalAlpha = (1 - progress) * 0.3;
+    ctx.beginPath();
+    ctx.arc(x, y, radius * progress, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawRegenBurst(x, y, progress) {
     ctx.save();
     ctx.globalAlpha = (1 - progress) * 0.7;
-    ctx.fillStyle = '#E040FB';
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + progress * 3;
-      const d = 15 * progress;
+    ctx.fillStyle = '#4CAF50';
+    // Green particles radiating outward
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const d = 20 * progress;
       ctx.fillRect(x + Math.cos(a) * d - 2, y + Math.sin(a) * d - 2, 4, 4);
     }
+    // Green ring
+    ctx.strokeStyle = '#4CAF50';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 15 * progress, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -425,6 +498,6 @@ const Renderer = (() => {
   return {
     init, resize, clear, drawMap, drawFogOfWar,
     drawCaptureZone, drawTank, drawBullet, drawPowerup, drawCreditPickup,
-    drawMine, drawSmoke, drawDeathExplosion, drawEMPBlast, drawTeleportEffect
+    drawMine, drawDeathExplosion, drawSnipeReticle, drawSnipeImpact, drawRegenBurst
   };
 })();

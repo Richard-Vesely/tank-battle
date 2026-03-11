@@ -37,10 +37,8 @@ function createRoom(mode, deathPenalty) {
     bullets: [],
     powerups: [],
     mines: [],
-    smokes: [],
     creditPickups: [],
     lastCreditSpawn: 0,
-    lastPassiveIncome: 0,
     map: null,
     mapSeed: seed,
     scores: {},
@@ -145,95 +143,92 @@ function createPlayer(name, colorIndex) {
     shieldActive: false,
     lives: C.FFA_LIVES,
     respawnTimer: 0,
-    // v2: Upgrades
+    // v2: Stats & Abilities
     currency: 0,
-    upgrades: {},  // { damage: 1, radar: 2, ... }
-    // v2: Ability cooldowns
-    dashCooldown: 0,
-    teleportCooldown: 0,
-    empCooldown: 0,
-    smokeCooldown: 0,
-    mineCooldown: 0,
-    // v2: Status effects
-    empDisabled: false,
-    empTimer: 0,
-    stealthVisible: true,  // whether this player is visible (computed per-viewer)
-    // v2: Regen timer
-    regenTimer: 0,
+    stats: {},            // { firepower: 2, mobility: 1, ... }
+    abilities: {},        // { berserk: 1, mine: 2, ... }
+    abilityCooldowns: {}, // { berserk: 0, mine: 3000, ... } (remaining ms)
+    activeEffects: {},    // { berserk: { remaining: 5000 }, ... }
+    revealZones: [],      // [{ x, y, radius, remaining }]
   };
 }
 
-// ─── Upgrade Helpers ──────────────────────────────────────────
-function getUpgradeLevel(player, key) {
-  return player.upgrades[key] || 0;
+// ─── Stat & Ability Helpers ──────────────────────────────────
+function getStatLevel(player, key) {
+  return player.stats[key] || 0;
 }
 
-function getUpgradeValue(key, level) {
-  if (level <= 0) return null;
-  const def = C.UPGRADES[key];
-  if (!def) return null;
-  return def.values[level - 1];
+function getAbilityLevel(player, key) {
+  return player.abilities[key] || 0;
+}
+
+function hasAbility(player, key) {
+  return getAbilityLevel(player, key) > 0;
 }
 
 function getPlayerDamage(player) {
-  const lvl = getUpgradeLevel(player, 'damage');
-  return lvl > 0 ? getUpgradeValue('damage', lvl) : C.BULLET_DAMAGE;
+  const lvl = getStatLevel(player, 'firepower');
+  let dmg = lvl > 0 ? C.STATS.firepower.damage[lvl - 1] : C.BULLET_DAMAGE;
+  if (player.activeEffects.berserk) {
+    const aLvl = getAbilityLevel(player, 'berserk');
+    dmg *= C.ABILITIES.berserk.damageMult[aLvl - 1];
+  }
+  return Math.round(dmg);
 }
 
 function getPlayerFireCooldown(player) {
-  const lvl = getUpgradeLevel(player, 'reload');
+  const lvl = getStatLevel(player, 'firepower');
   if (player.powerup === C.POWERUP_RAPID) return C.RAPID_FIRE_COOLDOWN;
-  return lvl > 0 ? getUpgradeValue('reload', lvl) : C.FIRE_COOLDOWN;
+  let cd = lvl > 0 ? C.STATS.firepower.fireCooldown[lvl - 1] : C.FIRE_COOLDOWN;
+  if (player.activeEffects.berserk) {
+    const aLvl = getAbilityLevel(player, 'berserk');
+    cd *= C.ABILITIES.berserk.fireRateMult[aLvl - 1];
+  }
+  return Math.round(cd);
 }
 
 function getPlayerBulletSpeed(player) {
-  const lvl = getUpgradeLevel(player, 'bulletSpeed');
-  return lvl > 0 ? getUpgradeValue('bulletSpeed', lvl) : C.BULLET_SPEED;
+  const lvl = getStatLevel(player, 'firepower');
+  return lvl > 0 ? C.STATS.firepower.bulletSpeed[lvl - 1] : C.BULLET_SPEED;
 }
 
 function getPlayerSpeed(player) {
-  const lvl = getUpgradeLevel(player, 'speed');
-  let spd = lvl > 0 ? getUpgradeValue('speed', lvl) : C.TANK_SPEED;
+  const lvl = getStatLevel(player, 'mobility');
+  let spd = lvl > 0 ? C.STATS.mobility.moveSpeed[lvl - 1] : C.TANK_SPEED;
+  if (player.activeEffects.speedBoost) {
+    const aLvl = getAbilityLevel(player, 'speedBoost');
+    spd *= C.ABILITIES.speedBoost.speedMult[aLvl - 1];
+  }
   if (player.powerup === C.POWERUP_SPEED) spd *= C.SPEED_BOOST;
   return spd;
 }
 
 function getPlayerRotation(player) {
-  const lvl = getUpgradeLevel(player, 'rotation');
-  return lvl > 0 ? getUpgradeValue('rotation', lvl) : C.TANK_ROTATION_SPEED;
+  const lvl = getStatLevel(player, 'mobility');
+  return lvl > 0 ? C.STATS.mobility.rotationSpeed[lvl - 1] : C.TANK_ROTATION_SPEED;
 }
 
 function getPlayerMaxHp(player) {
-  const lvl = getUpgradeLevel(player, 'maxHp');
-  return lvl > 0 ? getUpgradeValue('maxHp', lvl) : C.TANK_MAX_HP;
+  const lvl = getStatLevel(player, 'defense');
+  return lvl > 0 ? C.STATS.defense.maxHp[lvl - 1] : C.TANK_MAX_HP;
 }
 
 function getPlayerArmor(player) {
-  const lvl = getUpgradeLevel(player, 'armor');
-  return lvl > 0 ? getUpgradeValue('armor', lvl) : 1.0;
-}
-
-function getPlayerRegen(player) {
-  const lvl = getUpgradeLevel(player, 'regen');
-  return lvl > 0 ? getUpgradeValue('regen', lvl) : 0;
-}
-
-function getPlayerRicochet(player) {
-  const lvl = getUpgradeLevel(player, 'ricochet');
-  return lvl > 0 ? getUpgradeValue('ricochet', lvl) : C.BULLET_MAX_RICOCHETS;
+  const lvl = getStatLevel(player, 'defense');
+  return lvl > 0 ? C.STATS.defense.armor[lvl - 1] : 1.0;
 }
 
 function getPlayerVision(player) {
-  const lvl = getUpgradeLevel(player, 'radar');
-  return C.BASE_VISION + (lvl > 0 ? lvl : 0);
+  const lvl = getStatLevel(player, 'perception');
+  return lvl > 0 ? C.STATS.perception.visionZones[lvl - 1] : C.BASE_VISION;
 }
 
 function getPlayerStealth(player) {
-  return getUpgradeLevel(player, 'stealth');
-}
-
-function hasUpgrade(player, key) {
-  return getUpgradeLevel(player, key) > 0;
+  if (player.activeEffects.hide) {
+    const aLvl = getAbilityLevel(player, 'hide');
+    return C.ABILITIES.hide.stealthZones[aLvl - 1];
+  }
+  return 0;
 }
 
 // ─── Game Logic ───────────────────────────────────────────────
@@ -253,9 +248,6 @@ function spawnTank(room, playerId) {
   player.powerup = null;
   player.powerupTimer = 0;
   player.shieldActive = false;
-  player.empDisabled = false;
-  player.empTimer = 0;
-  player.regenTimer = 0;
 }
 
 function startGame(room) {
@@ -263,10 +255,8 @@ function startGame(room) {
   room.bullets = [];
   room.powerups = [];
   room.mines = [];
-  room.smokes = [];
   room.creditPickups = [];
   room.lastCreditSpawn = Date.now();
-  room.lastPassiveIncome = Date.now();
   room.round++;
   room.lastPowerupSpawn = Date.now();
 
@@ -291,7 +281,11 @@ function startGame(room) {
     const p = room.players.get(id);
     p.lives = C.FFA_LIVES;
     p.currency = 0;
-    p.upgrades = {};
+    p.stats = {};
+    p.abilities = {};
+    p.abilityCooldowns = {};
+    p.activeEffects = {};
+    p.revealZones = [];
     spawnTank(room, id);
   }
 
@@ -331,6 +325,12 @@ function isVisibleTo(viewer, target, room) {
   const visionZones = getPlayerVision(viewer);
   const stealthZones = getPlayerStealth(target);
 
+  // Check if target is in a reveal zone
+  for (const rz of viewer.revealZones || []) {
+    const rdx = target.x - rz.x, rdy = target.y - rz.y;
+    if (Math.sqrt(rdx * rdx + rdy * rdy) <= rz.radius) return true;
+  }
+
   // Calculate distance in tiles
   const dx = (target.x - viewer.x) / C.TILE_SIZE;
   const dy = (target.y - viewer.y) / C.TILE_SIZE;
@@ -342,19 +342,12 @@ function isVisibleTo(viewer, target, room) {
   else if (dist <= C.FOG_ZONE_2) targetZone = 2;
   else if (dist <= C.FOG_ZONE_3) targetZone = 3;
   else if (dist <= C.FOG_ZONE_4) targetZone = 4;
-  else return false; // Beyond all zones
+  else return false;
 
   // Viewer can see zones 1 through visionZones
   if (targetZone > visionZones) return false;
 
   // Stealth: target invisible in zones > (max - stealth)
-  // Stealth 1 = invisible in zone 4+, Stealth 2 = invisible in zones 3+, etc.
-  const visibleMinZone = stealthZones + 1;  // stealth 0 = visible everywhere, stealth 1 = only visible in zone 1
-  // Actually: stealth N means visible only in first (4-N) zones
-  // Stealth 0: visible in zones 1,2,3,4
-  // Stealth 1: visible in zones 1,2,3
-  // Stealth 2: visible in zones 1,2
-  // Stealth 3: visible in zone 1 only
   const maxVisibleZone = 4 - stealthZones;
   if (targetZone > maxVisibleZone) return false;
 
@@ -408,7 +401,6 @@ function getGameStateForPlayer(room, viewerId) {
     mines: viewer && viewer.alive
       ? room.mines.filter(m => m.owner === viewerId || isVisibleTo(viewer, m, room))
       : room.mines,
-    smokes: room.smokes.map(s => ({ x: s.x, y: s.y, radius: C.SMOKE_RADIUS, remaining: s.remaining })),
     scores: room.scores,
     domScores: room.domScores,
     captureZones: room.captureZones.map(z => ({ x: z.x, y: z.y, label: z.label, owner: z.owner, contested: z.contested })),
@@ -421,6 +413,8 @@ function serializePlayer(id, p, visible) {
   if (!visible) {
     return { id, name: p.name, colorIndex: p.colorIndex, alive: p.alive, visible: false };
   }
+  // Active effect keys (for rendering VFX on other players)
+  const effectKeys = Object.keys(p.activeEffects || {});
   return {
     id, name: p.name,
     x: p.x, y: p.y, angle: p.angle,
@@ -431,8 +425,11 @@ function serializePlayer(id, p, visible) {
     shieldActive: p.shieldActive,
     lives: p.lives,
     currency: p.currency,
-    upgrades: p.upgrades,
-    empDisabled: p.empDisabled,
+    stats: p.stats,
+    abilities: p.abilities,
+    abilityCooldowns: p.abilityCooldowns,
+    activeEffects: effectKeys,
+    revealZones: p.revealZones,
     visible: true
   };
 }
@@ -453,22 +450,25 @@ function updateGame(room, dt, now) {
       continue;
     }
 
-    // EMP disable timer
-    if (p.empDisabled) {
-      p.empTimer -= dt * 1000;
-      if (p.empTimer <= 0) {
-        p.empDisabled = false;
+    // Tick active effects (duration abilities)
+    for (const key of Object.keys(p.activeEffects)) {
+      p.activeEffects[key].remaining -= dt * 1000;
+      if (p.activeEffects[key].remaining <= 0) {
+        delete p.activeEffects[key];
       }
-      continue; // Can't do anything while EMP'd
     }
 
-    // Regen
-    const regenRate = getPlayerRegen(p);
-    if (regenRate > 0) {
-      p.regenTimer += dt;
-      if (p.regenTimer >= 1) {
-        p.hp = Math.min(p.hp + regenRate, p.maxHp);
-        p.regenTimer = 0;
+    // Tick reveal zones
+    for (let r = p.revealZones.length - 1; r >= 0; r--) {
+      p.revealZones[r].remaining -= dt * 1000;
+      if (p.revealZones[r].remaining <= 0) p.revealZones.splice(r, 1);
+    }
+
+    // Tick ability cooldowns
+    for (const key of Object.keys(p.abilityCooldowns)) {
+      if (p.abilityCooldowns[key] > 0) {
+        p.abilityCooldowns[key] -= dt * 1000;
+        if (p.abilityCooldowns[key] < 0) p.abilityCooldowns[key] = 0;
       }
     }
 
@@ -510,35 +510,48 @@ function updateGame(room, dt, now) {
         }
       }
 
-      // Abilities
-      if (p.input.dash && hasUpgrade(p, 'dash') && p.dashCooldown <= 0) {
-        performDash(room, id);
-        p.dashCooldown = C.DASH_COOLDOWN;
+      // Duration abilities (Q/W/E/R)
+      const durationKeys = { berserk: 'berserk', speedBoost: 'speedBoost', vampire: 'vampire', hide: 'hide' };
+      for (const [inputKey, abilityKey] of Object.entries(durationKeys)) {
+        if (p.input[inputKey] && hasAbility(p, abilityKey) && !p.activeEffects[abilityKey] &&
+            (p.abilityCooldowns[abilityKey] || 0) <= 0) {
+          const def = C.ABILITIES[abilityKey];
+          const lvl = getAbilityLevel(p, abilityKey);
+          p.activeEffects[abilityKey] = { remaining: def.duration };
+          p.abilityCooldowns[abilityKey] = def.cooldown[lvl - 1];
+          io.to(room.code).emit('abilityUsed', { id, ability: abilityKey });
+        }
       }
-      if (p.input.teleport && hasUpgrade(p, 'teleport') && p.teleportCooldown <= 0) {
-        performTeleport(room, id);
-        p.teleportCooldown = C.TELEPORT_COOLDOWN;
-      }
-      if (p.input.emp && hasUpgrade(p, 'emp') && p.empCooldown <= 0) {
-        performEMP(room, id);
-        p.empCooldown = C.EMP_COOLDOWN;
-      }
-      if (p.input.smoke && hasUpgrade(p, 'smoke') && p.smokeCooldown <= 0) {
-        performSmoke(room, id);
-        p.smokeCooldown = C.SMOKE_COOLDOWN;
-      }
-      if (p.input.mine && hasUpgrade(p, 'mine') && p.mineCooldown <= 0) {
-        placeMine(room, id);
-        p.mineCooldown = C.MINE_COOLDOWN;
-      }
-    }
 
-    // Cooldown timers
-    if (p.dashCooldown > 0) p.dashCooldown -= dt * 1000;
-    if (p.teleportCooldown > 0) p.teleportCooldown -= dt * 1000;
-    if (p.empCooldown > 0) p.empCooldown -= dt * 1000;
-    if (p.smokeCooldown > 0) p.smokeCooldown -= dt * 1000;
-    if (p.mineCooldown > 0) p.mineCooldown -= dt * 1000;
+      // Instant abilities
+      if (p.input.regenBurst && hasAbility(p, 'regenBurst') && (p.abilityCooldowns.regenBurst || 0) <= 0) {
+        const lvl = getAbilityLevel(p, 'regenBurst');
+        const def = C.ABILITIES.regenBurst;
+        p.hp = Math.min(p.hp + def.healAmount[lvl - 1], p.maxHp);
+        p.abilityCooldowns.regenBurst = def.cooldown[lvl - 1];
+        io.to(room.code).emit('abilityUsed', { id, ability: 'regenBurst', x: p.x, y: p.y });
+      }
+
+      if (p.input.reveal && hasAbility(p, 'reveal') && (p.abilityCooldowns.reveal || 0) <= 0) {
+        const lvl = getAbilityLevel(p, 'reveal');
+        const def = C.ABILITIES.reveal;
+        p.revealZones.push({
+          x: p.x, y: p.y,
+          radius: def.radius[lvl - 1] * C.TILE_SIZE,
+          remaining: def.revealDuration[lvl - 1]
+        });
+        p.abilityCooldowns.reveal = def.cooldown[lvl - 1];
+        io.to(room.code).emit('abilityUsed', { id, ability: 'reveal', x: p.x, y: p.y, radius: def.radius[lvl - 1] });
+      }
+
+      if (p.input.mine && hasAbility(p, 'mine') && (p.abilityCooldowns.mine || 0) <= 0) {
+        const lvl = getAbilityLevel(p, 'mine');
+        const def = C.ABILITIES.mine;
+        placeMine(room, id, def.damage[lvl - 1]);
+        p.abilityCooldowns.mine = def.cooldown[lvl - 1];
+      }
+      // Snipe is handled via separate socket event (snipeFire)
+    }
 
     // Powerup timer
     if (p.powerup && p.powerup !== C.POWERUP_HEAL) {
@@ -559,12 +572,6 @@ function updateGame(room, dt, now) {
   // Update mines
   updateMines(room);
 
-  // Update smokes
-  for (let i = room.smokes.length - 1; i >= 0; i--) {
-    room.smokes[i].remaining -= dt * 1000;
-    if (room.smokes[i].remaining <= 0) room.smokes.splice(i, 1);
-  }
-
   // Spawn power-ups
   if (now - room.lastPowerupSpawn >= C.POWERUP_SPAWN_INTERVAL && room.powerups.length < C.POWERUP_MAX_ON_MAP) {
     spawnPowerup(room);
@@ -583,15 +590,6 @@ function updateGame(room, dt, now) {
         io.to(room.code).emit('powerupCollected', { id: pid, type: pu.type });
         break;
       }
-    }
-  }
-
-  // Passive credit income (every few seconds)
-  if (now - room.lastPassiveIncome >= C.PASSIVE_INCOME_INTERVAL) {
-    room.lastPassiveIncome = now;
-    for (const [id, p] of room.players) {
-      if (!p.alive) continue;
-      p.currency += C.PASSIVE_INCOME_AMOUNT;
     }
   }
 
@@ -697,19 +695,35 @@ function killPlayer(room, victimId, killerId) {
   const victim = room.players.get(victimId);
   victim.alive = false;
   victim.hp = 0;
+  victim.activeEffects = {};
 
   if (killerId && killerId !== victimId) {
     room.scores[killerId] = (room.scores[killerId] || 0) + 1;
     const killer = room.players.get(killerId);
     if (killer) {
-      killer.currency += C.KILL_CURRENCY;
-      io.to(room.code).emit('currencyEarned', { id: killerId, amount: C.KILL_CURRENCY, total: killer.currency });
+      let earnedCR = C.KILL_CURRENCY;
+
+      // Vampire bonus: extra CR + heal on kill
+      if (killer.activeEffects.vampire) {
+        const vLvl = getAbilityLevel(killer, 'vampire');
+        const def = C.ABILITIES.vampire;
+        const bonusCR = def.bonusCR[vLvl - 1];
+        const healAmt = Math.floor(killer.maxHp * def.healPercent[vLvl - 1]);
+        earnedCR += bonusCR;
+        killer.hp = Math.min(killer.hp + healAmt, killer.maxHp);
+        io.to(room.code).emit('vampireProc', { id: killerId, heal: healAmt, bonusCR });
+      }
+
+      killer.currency += earnedCR;
+      io.to(room.code).emit('currencyEarned', { id: killerId, amount: earnedCR, total: killer.currency });
     }
   }
 
   // Death penalty
   if (room.deathPenalty === C.DEATH_LOSE_ALL) {
-    victim.upgrades = {};
+    victim.stats = {};
+    victim.abilities = {};
+    victim.abilityCooldowns = {};
     victim.currency = 0;
   }
 
@@ -731,8 +745,7 @@ function updateMines(room) {
       if (!p.alive) continue;
       const dx = m.x - p.x, dy = m.y - p.y;
       if (Math.sqrt(dx*dx + dy*dy) < C.MINE_RADIUS) {
-        // Explode mine
-        const dmg = Math.round(C.MINE_DAMAGE * getPlayerArmor(p));
+        const dmg = Math.round(m.damage * getPlayerArmor(p));
         p.hp -= dmg;
         io.to(room.code).emit('mineExploded', { x: m.x, y: m.y, victim: pid });
         if (p.hp <= 0) killPlayer(room, pid, m.owner);
@@ -792,65 +805,42 @@ function updateCaptureZones(room, dt) {
 }
 
 // ─── Abilities ────────────────────────────────────────────────
-function performDash(room, playerId) {
-  const p = room.players.get(playerId);
-  const rad = (p.angle * Math.PI) / 180;
-  const nx = p.x + Math.sin(rad) * C.DASH_DISTANCE;
-  const ny = p.y - Math.cos(rad) * C.DASH_DISTANCE;
-  // Clamp to valid position
-  if (!collidesWithMap(room, p, nx, ny, C.TANK_SIZE / 2)) {
-    p.x = nx;
-    p.y = ny;
-  }
-  io.to(room.code).emit('abilityUsed', { id: playerId, ability: 'dash' });
-}
-
-function performTeleport(room, playerId) {
-  const p = room.players.get(playerId);
-  // Teleport to a random empty spot within range
-  let attempts = 0;
-  while (attempts < 20) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = C.TELEPORT_RANGE * (0.5 + Math.random() * 0.5);
-    const nx = p.x + Math.cos(angle) * dist;
-    const ny = p.y + Math.sin(angle) * dist;
-    if (!collidesWithMap(room, p, nx, ny, C.TANK_SIZE / 2)) {
-      p.x = nx;
-      p.y = ny;
-      io.to(room.code).emit('abilityUsed', { id: playerId, ability: 'teleport', x: nx, y: ny });
-      return;
-    }
-    attempts++;
-  }
-}
-
-function performEMP(room, playerId) {
-  const p = room.players.get(playerId);
-  for (const [id, other] of room.players) {
-    if (id === playerId || !other.alive) continue;
-    const dx = other.x - p.x, dy = other.y - p.y;
-    if (Math.sqrt(dx*dx + dy*dy) <= C.EMP_RADIUS) {
-      other.empDisabled = true;
-      other.empTimer = C.EMP_DURATION;
-    }
-  }
-  io.to(room.code).emit('abilityUsed', { id: playerId, ability: 'emp', x: p.x, y: p.y });
-}
-
-function performSmoke(room, playerId) {
-  const p = room.players.get(playerId);
-  room.smokes.push({ x: p.x, y: p.y, owner: playerId, remaining: C.SMOKE_DURATION });
-  io.to(room.code).emit('abilityUsed', { id: playerId, ability: 'smoke', x: p.x, y: p.y });
-}
-
-function placeMine(room, playerId) {
+function placeMine(room, playerId, damage) {
   const p = room.players.get(playerId);
   room.mines.push({
     id: room.mineIdCounter++,
     owner: playerId,
-    x: p.x, y: p.y
+    x: p.x, y: p.y,
+    damage: damage
   });
   io.to(room.code).emit('minePlaced', { owner: playerId, x: p.x, y: p.y });
+}
+
+function performSnipe(room, playerId, targetX, targetY) {
+  const p = room.players.get(playerId);
+  if (!p || !p.alive) return;
+  if (!hasAbility(p, 'snipe')) return;
+  if ((p.abilityCooldowns.snipe || 0) > 0) return;
+
+  const lvl = getAbilityLevel(p, 'snipe');
+  const def = C.ABILITIES.snipe;
+  const damage = def.damage[lvl - 1];
+  const radius = def.radius[lvl - 1];
+
+  // Apply area damage at target position
+  for (const [pid, target] of room.players) {
+    if (pid === playerId || !target.alive) continue;
+    const dx = target.x - targetX, dy = target.y - targetY;
+    if (Math.sqrt(dx * dx + dy * dy) <= radius) {
+      const dmg = Math.round(damage * getPlayerArmor(target));
+      target.hp -= dmg;
+      io.to(room.code).emit('playerHit', { id: pid, hp: target.hp, by: playerId, dmg });
+      if (target.hp <= 0) killPlayer(room, pid, playerId);
+    }
+  }
+
+  p.abilityCooldowns.snipe = def.cooldown[lvl - 1];
+  io.to(room.code).emit('snipeImpact', { x: targetX, y: targetY, radius, by: playerId });
 }
 
 // ─── Collision ────────────────────────────────────────────────
@@ -871,12 +861,6 @@ function collidesWithMap(room, player, x, y, radius) {
         if (ddx*ddx + ddy*ddy < radius*radius) return true;
       }
       if (tile === C.TILE_BRICK) {
-        // Brick breaker upgrade lets you drive through bricks
-        if (player && hasUpgrade(player, 'breaker')) {
-          room.map[ty][tx] = C.TILE_EMPTY;
-          io.to(room.code).emit('tileDestroyed', { x: tx, y: ty });
-          continue;
-        }
         const closestX = Math.max(tx * C.TILE_SIZE, Math.min(x, (tx + 1) * C.TILE_SIZE));
         const closestY = Math.max(ty * C.TILE_SIZE, Math.min(y, (ty + 1) * C.TILE_SIZE));
         const ddx = x - closestX, ddy = y - closestY;
@@ -909,31 +893,17 @@ function fireBullet(room, playerId, now) {
   const rad = (p.angle * Math.PI) / 180;
   const bx = p.x + Math.sin(rad) * (C.TANK_SIZE / 2 + 4);
   const by = p.y - Math.cos(rad) * (C.TANK_SIZE / 2 + 4);
-  const bulletData = {
+  room.bullets.push({
     id: room.bulletIdCounter++,
     owner: playerId,
     x: bx, y: by,
     angle: p.angle,
     speed: getPlayerBulletSpeed(p),
     damage: getPlayerDamage(p),
-    maxRicochets: getPlayerRicochet(p),
+    maxRicochets: C.BULLET_MAX_RICOCHETS,
     ricochets: 0,
     age: 0
-  };
-
-  room.bullets.push(bulletData);
-
-  // Double shot
-  if (hasUpgrade(p, 'doubleShot')) {
-    const offset = 8;
-    room.bullets.push({
-      ...bulletData,
-      id: room.bulletIdCounter++,
-      x: bx + Math.cos(rad) * offset,
-      y: by + Math.sin(rad) * offset
-    });
-  }
-
+  });
   io.to(room.code).emit('bulletFired', { owner: playerId });
 }
 
@@ -1014,7 +984,6 @@ function endGame(room, winnerId) {
       room.bullets = [];
       room.powerups = [];
       room.mines = [];
-      room.smokes = [];
       for (const [id, p] of room.players) p.ready = false;
       io.to(room.code).emit('returnToLobby', { players: getPlayersInfo(room) });
     }
@@ -1126,6 +1095,16 @@ function startPractice(room, socketId) {
 
   // Override: give practice player currency after startGame resets it
   if (player) player.currency = 500;
+  // Ensure bots have the new fields
+  for (const [id, p] of room.players) {
+    if (p.isBot) {
+      p.stats = {};
+      p.abilities = {};
+      p.abilityCooldowns = {};
+      p.activeEffects = {};
+      p.revealZones = [];
+    }
+  }
 }
 
 // ─── Socket.IO Events ─────────────────────────────────────────
@@ -1212,35 +1191,46 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('purchaseUpgrade', ({ key }) => {
+  socket.on('purchase', ({ type, key }) => {
     for (const [, room] of rooms) {
       const player = room.players.get(socket.id);
       if (!player || room.state !== 'playing') continue;
 
-      const def = C.UPGRADES[key];
-      if (!def) return;
-
-      const currentLevel = getUpgradeLevel(player, key);
-      if (currentLevel >= def.maxLevel) return;
-
-      const cost = def.costs[currentLevel];
-      if (player.currency < cost) return;
-
-      player.currency -= cost;
-      player.upgrades[key] = currentLevel + 1;
-
-      // Apply immediate effects
-      if (key === 'maxHp') {
-        player.maxHp = getPlayerMaxHp(player);
-        player.hp = Math.min(player.hp + 30, player.maxHp);
+      if (type === 'stat') {
+        const def = C.STATS[key];
+        if (!def) return;
+        const currentLevel = getStatLevel(player, key);
+        if (currentLevel >= def.maxLevel) return;
+        const cost = def.costs[currentLevel];
+        if (player.currency < cost) return;
+        player.currency -= cost;
+        player.stats[key] = currentLevel + 1;
+        // Defense stat: update maxHp and heal a bit
+        if (key === 'defense') {
+          player.maxHp = getPlayerMaxHp(player);
+          player.hp = Math.min(player.hp + 30, player.maxHp);
+        }
+        socket.emit('upgradeSuccess', { type: 'stat', key, level: player.stats[key], currency: player.currency, stats: player.stats, abilities: player.abilities });
+      } else if (type === 'ability') {
+        const def = C.ABILITIES[key];
+        if (!def) return;
+        const currentLevel = getAbilityLevel(player, key);
+        if (currentLevel >= def.maxLevel) return;
+        const cost = def.costs[currentLevel];
+        if (player.currency < cost) return;
+        player.currency -= cost;
+        player.abilities[key] = currentLevel + 1;
+        socket.emit('upgradeSuccess', { type: 'ability', key, level: player.abilities[key], currency: player.currency, stats: player.stats, abilities: player.abilities });
       }
+      return;
+    }
+  });
 
-      socket.emit('upgradeSuccess', {
-        key,
-        level: player.upgrades[key],
-        currency: player.currency,
-        upgrades: player.upgrades
-      });
+  socket.on('snipeFire', ({ x, y }) => {
+    for (const [, room] of rooms) {
+      const player = room.players.get(socket.id);
+      if (!player || room.state !== 'playing' || !player.alive) continue;
+      performSnipe(room, socket.id, x, y);
       return;
     }
   });
