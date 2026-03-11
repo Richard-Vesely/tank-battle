@@ -1,4 +1,4 @@
-// Main game controller v3 — stats/abilities, snipe mode, fog of war, domination
+// Main game controller v3 — stats/abilities, domination
 const Game = (() => {
   let myId = null;
   let currentRoom = null;
@@ -13,7 +13,6 @@ const Game = (() => {
   let lastInput = '';
   let selectedMode = CONSTANTS.MODE_DOMINATION;
   let selectedPenalty = CONSTANTS.DEATH_KEEP_UPGRADES;
-  let snipeMode = false;
 
   // DOM refs
   let screens = {};
@@ -171,7 +170,6 @@ const Game = (() => {
       explosions = [];
       effects = [];
       shopOpen = false;
-      snipeMode = false;
       if (els.shop) els.shop.classList.remove('show');
       showScreen('game');
       showMessage('GO!', 1500);
@@ -191,7 +189,7 @@ const Game = (() => {
     Network.on('playerKilled', (data) => {
       if (state && state.players) {
         const killed = state.players.find(p => p.id === data.id);
-        if (killed && killed.visible !== false) {
+        if (killed) {
           explosions.push({ x: killed.x, y: killed.y, startTime: Date.now(), duration: 800 });
         }
       }
@@ -229,7 +227,7 @@ const Game = (() => {
     Network.on('shieldBreak', (data) => {
       if (state && state.players) {
         const p = state.players.find(pl => pl.id === data.id);
-        if (p && p.visible !== false) effects.push({ type: 'explosion', x: p.x, y: p.y, startTime: Date.now(), duration: 400 });
+        if (p) effects.push({ type: 'explosion', x: p.x, y: p.y, startTime: Date.now(), duration: 400 });
       }
     });
 
@@ -238,22 +236,15 @@ const Game = (() => {
         effects.push({ type: 'regenBurst', x: data.x, y: data.y, startTime: Date.now(), duration: 600 });
         if (data.id === myId) showMessage('REGEN!', 500);
       }
-      if (data.ability === 'reveal' && data.id === myId) {
-        showMessage('REVEALED!', 1000);
-      }
       // Duration ability activation messages for self
       if (data.id === myId) {
-        const durationNames = { berserk: 'BERSERK!', speedBoost: 'SPEED BOOST!', vampire: 'VAMPIRE!', hide: 'STEALTH!' };
+        const durationNames = { berserk: 'BERSERK!', speedBoost: 'SPEED BOOST!', vampire: 'VAMPIRE!', hide: 'STEALTH!', shield: 'SHIELD!' };
         if (durationNames[data.ability]) showMessage(durationNames[data.ability], 800);
       }
     });
 
-    Network.on('snipeImpact', (data) => {
-      effects.push({ type: 'snipeImpact', x: data.x, y: data.y, radius: data.radius, startTime: Date.now(), duration: 600 });
-    });
-
     Network.on('vampireProc', (data) => {
-      if (data.id === myId) showMessage(`VAMPIRE: +${data.bonusCR} CR, +${data.heal} HP`, 1500);
+      if (data.id === myId) showMessage(`VAMPIRE: ${data.earnedCR} CR, +${data.heal} HP`, 1500);
     });
 
     Network.on('mineExploded', (data) => {
@@ -441,22 +432,6 @@ const Game = (() => {
       els.abilities.innerHTML = abHtml;
     }
 
-    // Snipe mode indicator
-    if (snipeMode) {
-      els.abilities.innerHTML += '<span class="ability-icon active">AIM...</span>';
-    }
-  }
-
-  // ─── Screen-to-World conversion for snipe ───────────────────
-  function screenToWorld(screenX, screenY) {
-    const canvas = document.getElementById('game-canvas');
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return {
-      x: (screenX - rect.left) * scaleX,
-      y: (screenY - rect.top) * scaleY
-    };
   }
 
   // ─── Game Loop ──────────────────────────────────────────────
@@ -467,35 +442,29 @@ const Game = (() => {
     const now = Date.now();
     const input = Input.getInput();
 
-    // Escape to leave game or cancel snipe
+    // Escape to leave game
     if (Input.isJustPressed('Escape')) {
-      if (snipeMode) {
-        snipeMode = false;
-      } else {
-        location.reload();
-        return;
-      }
+      location.reload();
+      return;
     }
 
     // Shop toggle (Tab)
     if (Input.isJustPressed('Tab')) toggleShop();
 
-    // Quick-buy keys 1-4 for stats
+    // Quick-buy keys 1-3 for stats
     for (let i = 0; i < CONSTANTS.QUICKBUY_STATS.length; i++) {
       if (Input.isJustPressed(`Digit${i + 1}`)) {
         Network.emit('purchase', { type: 'stat', key: CONSTANTS.QUICKBUY_STATS[i] });
       }
     }
 
-    // Snipe mode: press F to enter, click to fire
-    if (Input.isJustPressed('KeyF') && !snipeMode) {
-      snipeMode = true;
-    }
-    if (snipeMode && Input.consumeClick()) {
-      const mouse = Input.getMousePosition();
-      const world = screenToWorld(mouse.x, mouse.y);
-      Network.emit('snipeFire', { x: world.x, y: world.y });
-      snipeMode = false;
+    // Shift + ability key to buy/upgrade abilities
+    if (Input.isKeyDown('ShiftLeft') || Input.isKeyDown('ShiftRight')) {
+      for (const [key, def] of Object.entries(CONSTANTS.ABILITIES)) {
+        if (Input.isJustPressed('Key' + def.key)) {
+          Network.emit('purchase', { type: 'ability', key });
+        }
+      }
     }
 
     // Send input (throttled)
@@ -539,7 +508,6 @@ const Game = (() => {
     // Tanks
     if (state.players) {
       state.players.forEach(p => {
-        if (p.visible === false) return;
         Renderer.drawTank(p.x, p.y, p.angle, p.colorIndex, p.hp, p.maxHp, p.alive, p.name, p.shieldActive, p.activeEffects);
       });
     }
@@ -562,29 +530,8 @@ const Game = (() => {
       const e = effects[i];
       const progress = (now - e.startTime) / e.duration;
       if (progress >= 1) { effects.splice(i, 1); continue; }
-      if (e.type === 'snipeImpact') Renderer.drawSnipeImpact(e.x, e.y, e.radius, progress);
-      else if (e.type === 'regenBurst') Renderer.drawRegenBurst(e.x, e.y, progress);
+      if (e.type === 'regenBurst') Renderer.drawRegenBurst(e.x, e.y, progress);
       else Renderer.drawDeathExplosion(e.x, e.y, progress);
-    }
-
-    // Fog of War
-    if (state.fogCenter) {
-      const me = state.players.find(p => p.id === myId);
-      const revealZones = (me && me.revealZones) || [];
-      Renderer.drawFogOfWar(state.fogCenter.x, state.fogCenter.y, state.visionZones, revealZones);
-    }
-
-    // Snipe targeting reticle (drawn on top of fog)
-    if (snipeMode) {
-      const mouse = Input.getMousePosition();
-      const world = screenToWorld(mouse.x, mouse.y);
-      const me = state.players.find(p => p.id === myId);
-      let radius = 30;
-      if (me && me.abilities && me.abilities.snipe) {
-        const lvl = me.abilities.snipe;
-        radius = CONSTANTS.ABILITIES.snipe.radius[lvl - 1];
-      }
-      Renderer.drawSnipeReticle(world.x, world.y, radius);
     }
 
     updateHUD();

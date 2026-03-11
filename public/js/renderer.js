@@ -1,4 +1,4 @@
-// Retro pixel-art renderer v3 — stats/abilities VFX, fog with reveal zones
+// Retro pixel-art renderer v3 — stats/abilities VFX
 const Renderer = (() => {
   let canvas, ctx;
 
@@ -88,69 +88,6 @@ const Renderer = (() => {
     ctx.fillStyle = COLORS.steelHighlight;
     ctx.fillRect(px+4, py+4, 3, 3); ctx.fillRect(px+T-7, py+4, 3, 3);
     ctx.fillRect(px+4, py+T-7, 3, 3); ctx.fillRect(px+T-7, py+T-7, 3, 3);
-  }
-
-  // ─── Fog of War (radial + reveal zones) ─────────────────────
-  function drawFogOfWar(centerX, centerY, visionZones, revealZones) {
-    const T = CONSTANTS.TILE_SIZE;
-    const mapW = CONSTANTS.MAP_WIDTH * T;
-    const mapH = CONSTANTS.MAP_HEIGHT * T;
-    const maxRadius = visionZones * T * 3.5;
-
-    ctx.save();
-
-    // Dark overlay with circular cutouts
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(mapW, 0);
-    ctx.lineTo(mapW, mapH);
-    ctx.lineTo(0, mapH);
-    ctx.closePath();
-
-    // Main vision circle (counter-clockwise for hole)
-    ctx.moveTo(centerX + maxRadius, centerY);
-    for (let a = 0; a <= Math.PI * 2; a += 0.1) {
-      ctx.lineTo(centerX + Math.cos(-a) * maxRadius, centerY + Math.sin(-a) * maxRadius);
-    }
-    ctx.closePath();
-
-    // Reveal zone cutouts
-    if (revealZones) {
-      for (const rz of revealZones) {
-        ctx.moveTo(rz.x + rz.radius, rz.y);
-        for (let a = 0; a <= Math.PI * 2; a += 0.1) {
-          ctx.lineTo(rz.x + Math.cos(-a) * rz.radius, rz.y + Math.sin(-a) * rz.radius);
-        }
-        ctx.closePath();
-      }
-    }
-
-    ctx.fillStyle = 'rgba(0,0,0,0.85)';
-    ctx.fill();
-
-    // Soft fade at vision edge
-    const gradient = ctx.createRadialGradient(centerX, centerY, maxRadius * 0.6, centerX, centerY, maxRadius);
-    gradient.addColorStop(0, 'rgba(0,0,0,0)');
-    gradient.addColorStop(0.8, 'rgba(0,0,0,0.15)');
-    gradient.addColorStop(1, 'rgba(0,0,0,0.4)');
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, maxRadius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Reveal zone glow borders
-    if (revealZones) {
-      for (const rz of revealZones) {
-        ctx.strokeStyle = '#00BCD4';
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.4 + Math.sin(Date.now() / 300) * 0.2;
-        ctx.beginPath();
-        ctx.arc(rz.x, rz.y, rz.radius, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    }
-
-    ctx.restore();
   }
 
   // ─── Capture Zones ─────────────────────────────────────────
@@ -496,8 +433,8 @@ const Renderer = (() => {
   }
 
   return {
-    init, resize, clear, drawMap, drawFogOfWar,
+    init, resize, clear, drawMap,
     drawCaptureZone, drawTank, drawBullet, drawPowerup, drawCreditPickup,
-    drawMine, drawDeathExplosion, drawSnipeReticle, drawSnipeImpact, drawRegenBurst
+    drawMine, drawDeathExplosion, drawRegenBurst
   };
 })();

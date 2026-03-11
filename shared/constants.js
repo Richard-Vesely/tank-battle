@@ -59,12 +59,10 @@ const CONSTANTS = {
       moveSpeed: [85, 95, 108, 122, 140], rotationSpeed: [145, 160, 178, 198, 225] },
     defense:    { name: 'Defense',    maxLevel: 5, costs: [75, 150, 250, 400, 600],
       maxHp: [170, 195, 225, 265, 320], armor: [0.92, 0.84, 0.76, 0.67, 0.55] },
-    perception: { name: 'Perception', maxLevel: 5, costs: [75, 150, 250, 400, 600],
-      visionZones: [3.5, 4, 4.5, 5, 6] },
   },
 
-  // Quick-buy key bindings (number keys 1-4)
-  QUICKBUY_STATS: ['firepower', 'mobility', 'defense', 'perception'],
+  // Quick-buy key bindings (number keys 1-3)
+  QUICKBUY_STATS: ['firepower', 'mobility', 'defense'],
 
   // ─── Abilities (purchasable + upgradeable, 3 levels) ────
   ABILITIES: {
@@ -74,29 +72,19 @@ const CONSTANTS = {
     speedBoost: { name: 'Speed Boost',  key: 'W', type: 'duration', maxLevel: 3, costs: [150, 250, 400],
       duration: 5000, speedMult: [1.4, 1.6, 1.85], cooldown: [18000, 14000, 10000] },
     vampire:    { name: 'Vampire',      key: 'E', type: 'duration', maxLevel: 3, costs: [200, 300, 450],
-      duration: 5000, bonusCR: [40, 70, 110], healPercent: [0.15, 0.25, 0.40], cooldown: [25000, 20000, 15000] },
+      duration: 5000, killCRMult: [2, 3, 4], healPercent: [0.15, 0.25, 0.40], cooldown: [25000, 20000, 15000] },
     hide:       { name: 'Hide',         key: 'R', type: 'duration', maxLevel: 3, costs: [200, 300, 450],
       duration: 5000, stealthZones: [1, 2, 3], cooldown: [22000, 17000, 12000] },
+    shield:     { name: 'Shield',      key: 'F', type: 'duration', maxLevel: 3, costs: [200, 300, 450],
+      duration: 5000, cooldown: [40000, 32000, 24000] },
     // Instant abilities
-    snipe:      { name: 'Snipe',        key: 'F', type: 'instant', maxLevel: 3, costs: [250, 375, 500],
-      damage: [60, 90, 130], radius: [30, 45, 65], cooldown: [15000, 12000, 9000] },
     regenBurst: { name: 'Regen Burst',  key: 'G', type: 'instant', maxLevel: 3, costs: [150, 250, 400],
       healAmount: [50, 80, 120], cooldown: [18000, 14000, 10000] },
-    reveal:     { name: 'Reveal',       key: 'C', type: 'instant', maxLevel: 3, costs: [150, 250, 400],
-      radius: [5, 8, 12], revealDuration: [4000, 5000, 6000], cooldown: [20000, 16000, 12000] },
     mine:       { name: 'Mine',         key: 'X', type: 'instant', maxLevel: 3, costs: [150, 250, 400],
       damage: [50, 75, 110], cooldown: [8000, 6000, 4000] },
   },
 
   MINE_RADIUS: 40,
-
-  // ─── Fog of War ───────────────────────────────────────────
-  // 4 concentric zones (in tile units from tank)
-  FOG_ZONE_1: 3,    // Close - always visible
-  FOG_ZONE_2: 6,    // Near
-  FOG_ZONE_3: 10,   // Mid
-  FOG_ZONE_4: 15,   // Far
-  BASE_VISION: 3,   // Base: see zones 1-3 (radar upgrades add zone 4)
 
   // ─── Domination Mode ─────────────────────────────────────
   MODE_FFA: 'ffa',

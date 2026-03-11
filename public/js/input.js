@@ -33,22 +33,22 @@ const Input = (() => {
   }
 
   function getInput() {
+    const shift = keys['ShiftLeft'] || keys['ShiftRight'] || false;
     return {
       up: keys['ArrowUp'] || false,
       down: keys['ArrowDown'] || false,
       left: keys['ArrowLeft'] || false,
       right: keys['ArrowRight'] || false,
       fire: keys['Space'] || false,
-      // Duration abilities
-      berserk: keys['KeyQ'] || false,
-      speedBoost: keys['KeyW'] || false,
-      vampire: keys['KeyE'] || false,
-      hide: keys['KeyR'] || false,
+      // Duration abilities (suppressed when Shift held — Shift+key = buy)
+      berserk: !shift && (keys['KeyQ'] || false),
+      speedBoost: !shift && (keys['KeyW'] || false),
+      vampire: !shift && (keys['KeyE'] || false),
+      hide: !shift && (keys['KeyR'] || false),
+      shield: !shift && (keys['KeyF'] || false),
       // Instant abilities
-      regenBurst: keys['KeyG'] || false,
-      reveal: keys['KeyC'] || false,
-      mine: keys['KeyX'] || false,
-      // Snipe handled via snipe mode in game.js
+      regenBurst: !shift && (keys['KeyG'] || false),
+      mine: !shift && (keys['KeyX'] || false),
     };
   }
 

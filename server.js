@@ -149,7 +149,6 @@ function createPlayer(name, colorIndex) {
     abilities: {},        // { berserk: 1, mine: 2, ... }
     abilityCooldowns: {}, // { berserk: 0, mine: 3000, ... } (remaining ms)
     activeEffects: {},    // { berserk: { remaining: 5000 }, ... }
-    revealZones: [],      // [{ x, y, radius, remaining }]
   };
 }
 
@@ -218,18 +217,6 @@ function getPlayerArmor(player) {
   return lvl > 0 ? C.STATS.defense.armor[lvl - 1] : 1.0;
 }
 
-function getPlayerVision(player) {
-  const lvl = getStatLevel(player, 'perception');
-  return lvl > 0 ? C.STATS.perception.visionZones[lvl - 1] : C.BASE_VISION;
-}
-
-function getPlayerStealth(player) {
-  if (player.activeEffects.hide) {
-    const aLvl = getAbilityLevel(player, 'hide');
-    return C.ABILITIES.hide.stealthZones[aLvl - 1];
-  }
-  return 0;
-}
 
 // ─── Game Logic ───────────────────────────────────────────────
 function spawnTank(room, playerId) {
@@ -285,14 +272,13 @@ function startGame(room) {
     p.abilities = {};
     p.abilityCooldowns = {};
     p.activeEffects = {};
-    p.revealZones = [];
     spawnTank(room, id);
   }
 
   // Build initial player list for gameStart
   const startPlayers = [];
   for (const [id, p] of room.players) {
-    startPlayers.push(serializePlayer(id, p, true));
+    startPlayers.push(serializePlayer(id, p));
   }
 
   io.to(room.code).emit('gameStart', {
@@ -320,100 +306,37 @@ function startGame(room) {
   }, 1000 / C.BROADCAST_RATE);
 }
 
-// ─── Fog of War: per-player visibility ────────────────────────
-function isVisibleTo(viewer, target, room) {
-  const visionZones = getPlayerVision(viewer);
-  const stealthZones = getPlayerStealth(target);
-
-  // Check if target is in a reveal zone
-  for (const rz of viewer.revealZones || []) {
-    const rdx = target.x - rz.x, rdy = target.y - rz.y;
-    if (Math.sqrt(rdx * rdx + rdy * rdy) <= rz.radius) return true;
-  }
-
-  // Calculate distance in tiles
-  const dx = (target.x - viewer.x) / C.TILE_SIZE;
-  const dy = (target.y - viewer.y) / C.TILE_SIZE;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-
-  // Determine which zone the target is in
-  let targetZone;
-  if (dist <= C.FOG_ZONE_1) targetZone = 1;
-  else if (dist <= C.FOG_ZONE_2) targetZone = 2;
-  else if (dist <= C.FOG_ZONE_3) targetZone = 3;
-  else if (dist <= C.FOG_ZONE_4) targetZone = 4;
-  else return false;
-
-  // Viewer can see zones 1 through visionZones
-  if (targetZone > visionZones) return false;
-
-  // Stealth: target invisible in zones > (max - stealth)
-  const maxVisibleZone = 4 - stealthZones;
-  if (targetZone > maxVisibleZone) return false;
-
-  return true;
-}
-
 function broadcastState(room) {
-  // Send per-player customized state (fog of war)
-  for (const [viewerId, viewer] of room.players) {
-    const state = getGameStateForPlayer(room, viewerId);
+  const state = getGameState(room);
+  for (const [viewerId] of room.players) {
     const socket = io.sockets.sockets.get(viewerId);
-    if (socket) socket.emit('gameState', state);
-  }
-}
-
-function getGameStateForPlayer(room, viewerId) {
-  const viewer = room.players.get(viewerId);
-  const players = [];
-
-  for (const [id, p] of room.players) {
-    if (id === viewerId) {
-      // Always see yourself fully
-      players.push(serializePlayer(id, p, true));
-    } else if (!viewer || !viewer.alive) {
-      // Dead players see everything (spectator)
-      players.push(serializePlayer(id, p, true));
-    } else if (p.alive && isVisibleTo(viewer, p, room)) {
-      players.push(serializePlayer(id, p, true));
-    } else if (p.alive) {
-      // Hidden — send minimal info (player exists but position unknown)
-      players.push(serializePlayer(id, p, false));
-    } else {
-      players.push(serializePlayer(id, p, true));
+    if (socket) {
+      // Attach per-player data (currency, stats, abilities, cooldowns)
+      state.myId = viewerId;
+      socket.emit('gameState', state);
     }
   }
+}
 
-  // Filter bullets by visibility
-  const visibleBullets = viewer && viewer.alive
-    ? room.bullets.filter(b => {
-        const dx = (b.x - viewer.x) / C.TILE_SIZE;
-        const dy = (b.y - viewer.y) / C.TILE_SIZE;
-        return Math.sqrt(dx*dx + dy*dy) <= C.FOG_ZONE_4;
-      })
-    : room.bullets;
+function getGameState(room) {
+  const players = [];
+  for (const [id, p] of room.players) {
+    players.push(serializePlayer(id, p));
+  }
 
   return {
     players,
-    bullets: visibleBullets.map(b => ({ id: b.id, x: b.x, y: b.y, angle: b.angle, owner: b.owner })),
+    bullets: room.bullets.map(b => ({ id: b.id, x: b.x, y: b.y, angle: b.angle, owner: b.owner })),
     powerups: room.powerups,
     creditPickups: room.creditPickups.map(c => ({ x: c.x, y: c.y, value: c.value })),
-    mines: viewer && viewer.alive
-      ? room.mines.filter(m => m.owner === viewerId || isVisibleTo(viewer, m, room))
-      : room.mines,
+    mines: room.mines,
     scores: room.scores,
     domScores: room.domScores,
     captureZones: room.captureZones.map(z => ({ x: z.x, y: z.y, label: z.label, owner: z.owner, contested: z.contested })),
-    fogCenter: viewer ? { x: viewer.x, y: viewer.y } : null,
-    visionZones: viewer ? getPlayerVision(viewer) : 4
   };
 }
 
-function serializePlayer(id, p, visible) {
-  if (!visible) {
-    return { id, name: p.name, colorIndex: p.colorIndex, alive: p.alive, visible: false };
-  }
-  // Active effect keys (for rendering VFX on other players)
+function serializePlayer(id, p) {
   const effectKeys = Object.keys(p.activeEffects || {});
   return {
     id, name: p.name,
@@ -429,8 +352,6 @@ function serializePlayer(id, p, visible) {
     abilities: p.abilities,
     abilityCooldowns: p.abilityCooldowns,
     activeEffects: effectKeys,
-    revealZones: p.revealZones,
-    visible: true
   };
 }
 
@@ -454,14 +375,9 @@ function updateGame(room, dt, now) {
     for (const key of Object.keys(p.activeEffects)) {
       p.activeEffects[key].remaining -= dt * 1000;
       if (p.activeEffects[key].remaining <= 0) {
+        if (key === 'shield') p.shieldActive = false;
         delete p.activeEffects[key];
       }
-    }
-
-    // Tick reveal zones
-    for (let r = p.revealZones.length - 1; r >= 0; r--) {
-      p.revealZones[r].remaining -= dt * 1000;
-      if (p.revealZones[r].remaining <= 0) p.revealZones.splice(r, 1);
     }
 
     // Tick ability cooldowns
@@ -510,8 +426,8 @@ function updateGame(room, dt, now) {
         }
       }
 
-      // Duration abilities (Q/W/E/R)
-      const durationKeys = { berserk: 'berserk', speedBoost: 'speedBoost', vampire: 'vampire', hide: 'hide' };
+      // Duration abilities (Q/W/E/R/F)
+      const durationKeys = { berserk: 'berserk', speedBoost: 'speedBoost', vampire: 'vampire', hide: 'hide', shield: 'shield' };
       for (const [inputKey, abilityKey] of Object.entries(durationKeys)) {
         if (p.input[inputKey] && hasAbility(p, abilityKey) && !p.activeEffects[abilityKey] &&
             (p.abilityCooldowns[abilityKey] || 0) <= 0) {
@@ -519,6 +435,8 @@ function updateGame(room, dt, now) {
           const lvl = getAbilityLevel(p, abilityKey);
           p.activeEffects[abilityKey] = { remaining: def.duration };
           p.abilityCooldowns[abilityKey] = def.cooldown[lvl - 1];
+          // Shield ability: activate shield
+          if (abilityKey === 'shield') p.shieldActive = true;
           io.to(room.code).emit('abilityUsed', { id, ability: abilityKey });
         }
       }
@@ -532,25 +450,12 @@ function updateGame(room, dt, now) {
         io.to(room.code).emit('abilityUsed', { id, ability: 'regenBurst', x: p.x, y: p.y });
       }
 
-      if (p.input.reveal && hasAbility(p, 'reveal') && (p.abilityCooldowns.reveal || 0) <= 0) {
-        const lvl = getAbilityLevel(p, 'reveal');
-        const def = C.ABILITIES.reveal;
-        p.revealZones.push({
-          x: p.x, y: p.y,
-          radius: def.radius[lvl - 1] * C.TILE_SIZE,
-          remaining: def.revealDuration[lvl - 1]
-        });
-        p.abilityCooldowns.reveal = def.cooldown[lvl - 1];
-        io.to(room.code).emit('abilityUsed', { id, ability: 'reveal', x: p.x, y: p.y, radius: def.radius[lvl - 1] });
-      }
-
       if (p.input.mine && hasAbility(p, 'mine') && (p.abilityCooldowns.mine || 0) <= 0) {
         const lvl = getAbilityLevel(p, 'mine');
         const def = C.ABILITIES.mine;
         placeMine(room, id, def.damage[lvl - 1]);
         p.abilityCooldowns.mine = def.cooldown[lvl - 1];
       }
-      // Snipe is handled via separate socket event (snipeFire)
     }
 
     // Powerup timer
@@ -668,6 +573,7 @@ function updateBullets(room, dt) {
         if (p.shieldActive) {
           p.shieldActive = false;
           p.powerup = null;
+          if (p.activeEffects.shield) delete p.activeEffects.shield;
           io.to(room.code).emit('shieldBreak', { id: pid });
         } else {
           const dmg = Math.round(b.damage * getPlayerArmor(p));
@@ -703,15 +609,14 @@ function killPlayer(room, victimId, killerId) {
     if (killer) {
       let earnedCR = C.KILL_CURRENCY;
 
-      // Vampire bonus: extra CR + heal on kill
+      // Vampire: multiply kill credits + heal on kill
       if (killer.activeEffects.vampire) {
         const vLvl = getAbilityLevel(killer, 'vampire');
         const def = C.ABILITIES.vampire;
-        const bonusCR = def.bonusCR[vLvl - 1];
+        earnedCR = C.KILL_CURRENCY * def.killCRMult[vLvl - 1];
         const healAmt = Math.floor(killer.maxHp * def.healPercent[vLvl - 1]);
-        earnedCR += bonusCR;
         killer.hp = Math.min(killer.hp + healAmt, killer.maxHp);
-        io.to(room.code).emit('vampireProc', { id: killerId, heal: healAmt, bonusCR });
+        io.to(room.code).emit('vampireProc', { id: killerId, heal: healAmt, earnedCR });
       }
 
       killer.currency += earnedCR;
@@ -814,33 +719,6 @@ function placeMine(room, playerId, damage) {
     damage: damage
   });
   io.to(room.code).emit('minePlaced', { owner: playerId, x: p.x, y: p.y });
-}
-
-function performSnipe(room, playerId, targetX, targetY) {
-  const p = room.players.get(playerId);
-  if (!p || !p.alive) return;
-  if (!hasAbility(p, 'snipe')) return;
-  if ((p.abilityCooldowns.snipe || 0) > 0) return;
-
-  const lvl = getAbilityLevel(p, 'snipe');
-  const def = C.ABILITIES.snipe;
-  const damage = def.damage[lvl - 1];
-  const radius = def.radius[lvl - 1];
-
-  // Apply area damage at target position
-  for (const [pid, target] of room.players) {
-    if (pid === playerId || !target.alive) continue;
-    const dx = target.x - targetX, dy = target.y - targetY;
-    if (Math.sqrt(dx * dx + dy * dy) <= radius) {
-      const dmg = Math.round(damage * getPlayerArmor(target));
-      target.hp -= dmg;
-      io.to(room.code).emit('playerHit', { id: pid, hp: target.hp, by: playerId, dmg });
-      if (target.hp <= 0) killPlayer(room, pid, playerId);
-    }
-  }
-
-  p.abilityCooldowns.snipe = def.cooldown[lvl - 1];
-  io.to(room.code).emit('snipeImpact', { x: targetX, y: targetY, radius, by: playerId });
 }
 
 // ─── Collision ────────────────────────────────────────────────
@@ -1021,11 +899,12 @@ function updateBots(room, dt, now) {
       bs.turning = Math.random() < 0.3 ? 0 : (Math.random() < 0.5 ? -1 : 1);
     }
 
-    // Try to face nearest real player
+    // Try to face nearest real player (ignore hidden players)
     let nearestDist = Infinity;
     let nearestAngle = null;
     for (const [oid, op] of room.players) {
       if (oid === id || !op.alive || op.isBot) continue;
+      if (op.activeEffects && op.activeEffects.hide) continue;
       const dx = op.x - p.x, dy = op.y - p.y;
       const dist = Math.sqrt(dx*dx + dy*dy);
       if (dist < nearestDist) {
@@ -1102,7 +981,6 @@ function startPractice(room, socketId) {
       p.abilities = {};
       p.abilityCooldowns = {};
       p.activeEffects = {};
-      p.revealZones = [];
     }
   }
 }
@@ -1222,15 +1100,6 @@ io.on('connection', (socket) => {
         player.abilities[key] = currentLevel + 1;
         socket.emit('upgradeSuccess', { type: 'ability', key, level: player.abilities[key], currency: player.currency, stats: player.stats, abilities: player.abilities });
       }
-      return;
-    }
-  });
-
-  socket.on('snipeFire', ({ x, y }) => {
-    for (const [, room] of rooms) {
-      const player = room.players.get(socket.id);
-      if (!player || room.state !== 'playing' || !player.alive) continue;
-      performSnipe(room, socket.id, x, y);
       return;
     }
   });
