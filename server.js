@@ -123,9 +123,10 @@ function startGame(room) {
   room.mapSeed = Date.now();
   room.map = generateMap(C.MAP_WIDTH, C.MAP_HEIGHT, room.mapSeed);
 
-  // Initialize scores if needed
+  // Reset scores for new game
+  room.scores = {};
   for (const [id] of room.players) {
-    if (!room.scores[id]) room.scores[id] = 0;
+    room.scores[id] = 0;
     const p = room.players.get(id);
     p.lives = C.FFA_LIVES;
     spawnTank(room, id);
