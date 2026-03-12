@@ -1,4 +1,4 @@
-// Main game controller v3 — stats/abilities, domination
+// Main game controller v3 — unlimited scaling, dynamic map sizes
 const Game = (() => {
   let myId = null;
   let currentRoom = null;
@@ -13,6 +13,7 @@ const Game = (() => {
   let lastInput = '';
   let selectedMode = CONSTANTS.MODE_DOMINATION;
   let selectedPenalty = CONSTANTS.DEATH_KEEP_UPGRADES;
+  let selectedMapSize = 'small';
 
   // DOM refs
   let screens = {};
@@ -98,6 +99,14 @@ const Game = (() => {
       });
     });
 
+    document.querySelectorAll('.mapsize-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.mapsize-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        selectedMapSize = btn.dataset.mapsize;
+      });
+    });
+
     document.getElementById('btn-quickplay').addEventListener('click', () => {
       Network.emit('quickPlay', { name: nameInput.value || 'Player' });
     });
@@ -107,7 +116,7 @@ const Game = (() => {
     });
 
     document.getElementById('btn-create').addEventListener('click', () => {
-      Network.emit('createRoom', { name: nameInput.value || 'Player', mode: selectedMode, deathPenalty: selectedPenalty });
+      Network.emit('createRoom', { name: nameInput.value || 'Player', mode: selectedMode, deathPenalty: selectedPenalty, mapSize: selectedMapSize });
     });
 
     document.getElementById('btn-join').addEventListener('click', () => {
@@ -128,7 +137,7 @@ const Game = (() => {
     if (!els.playerList) return;
     els.playerList.innerHTML = players.map(p =>
       `<div class="player-entry">
-        <div class="player-color" style="background:${CONSTANTS.TANK_COLORS[p.colorIndex]}"></div>
+        <div class="player-color" style="background:${CONSTANTS.TANK_COLORS[p.colorIndex] || '#888'}"></div>
         <span class="player-name">${escapeHtml(p.name)}${p.id === myId ? ' (you)' : ''}</span>
         <span class="${p.ready ? 'player-ready' : 'player-waiting'}">${p.ready ? 'READY' : 'NOT READY'}</span>
       </div>`
@@ -171,6 +180,10 @@ const Game = (() => {
       effects = [];
       shopOpen = false;
       if (els.shop) els.shop.classList.remove('show');
+      // Set dynamic map size for renderer
+      if (data.mapWidth && data.mapHeight) {
+        Renderer.setMapSize(data.mapWidth, data.mapHeight);
+      }
       showScreen('game');
       showMessage('GO!', 1500);
     });
@@ -205,7 +218,6 @@ const Game = (() => {
         ? CONSTANTS.STATS[data.key].name
         : CONSTANTS.ABILITIES[data.key].name;
       showMessage(`${label} LVL ${data.level}`, 1500);
-      // Update local state immediately so shop reflects changes
       if (state && state.players) {
         const me = state.players.find(p => p.id === myId);
         if (me) {
@@ -236,7 +248,6 @@ const Game = (() => {
         effects.push({ type: 'regenBurst', x: data.x, y: data.y, startTime: Date.now(), duration: 600 });
         if (data.id === myId) showMessage('REGEN!', 500);
       }
-      // Duration ability activation messages for self
       if (data.id === myId) {
         const durationNames = { berserk: 'BERSERK!', speedBoost: 'SPEED BOOST!', vampire: 'VAMPIRE!', hide: 'STEALTH!', shield: 'SHIELD!' };
         if (durationNames[data.ability]) showMessage(durationNames[data.ability], 800);
@@ -291,11 +302,17 @@ const Game = (() => {
     return mode;
   }
 
-  // ─── Upgrade Shop ──────────────────────────────────────────
+  // ─── Upgrade Shop (formula-based, unlimited levels) ────────
   function toggleShop() {
     shopOpen = !shopOpen;
     if (els.shop) els.shop.classList.toggle('show', shopOpen);
     if (shopOpen) renderShop();
+  }
+
+  function formatCost(cost) {
+    if (cost >= 1000000) return (cost / 1000000).toFixed(1) + 'M';
+    if (cost >= 1000) return (cost / 1000).toFixed(1) + 'K';
+    return cost;
   }
 
   function renderShop() {
@@ -304,7 +321,7 @@ const Game = (() => {
     if (!me) return;
 
     const myCurrency = me.currency || 0;
-    let html = `<div class="shop-header">SHOP <span class="shop-currency">${myCurrency} CR</span></div>`;
+    let html = `<div class="shop-header">SHOP <span class="shop-currency">${formatCost(myCurrency)} CR</span></div>`;
 
     // ─── STATS section ─────
     html += '<div class="shop-section-title">STATS</div>';
@@ -312,14 +329,13 @@ const Game = (() => {
     statKeys.forEach((key, idx) => {
       const def = CONSTANTS.STATS[key];
       const lvl = (me.stats && me.stats[key]) || 0;
-      const maxed = lvl >= def.maxLevel;
-      const cost = maxed ? '-' : def.costs[lvl];
-      const canBuy = !maxed && myCurrency >= cost;
+      const cost = CONSTANTS.getStatCost(key, lvl);
+      const canBuy = myCurrency >= cost;
 
-      html += `<div class="shop-item ${canBuy ? 'buyable' : ''} ${maxed ? 'maxed' : ''}" data-type="stat" data-key="${key}">
+      html += `<div class="shop-item ${canBuy ? 'buyable' : ''}" data-type="stat" data-key="${key}">
         <span class="shop-item-name">${def.name}</span>
-        <span class="shop-item-level">${'\u25A0'.repeat(lvl)}${'\u25A1'.repeat(def.maxLevel - lvl)}</span>
-        <span class="shop-item-cost">${maxed ? 'MAX' : cost + ' CR'}</span>
+        <span class="shop-item-level">LVL ${lvl}</span>
+        <span class="shop-item-cost">${formatCost(cost)} CR</span>
         <span class="shop-hotkey">[${idx + 1}]</span>
       </div>`;
     });
@@ -328,15 +344,14 @@ const Game = (() => {
     html += '<div class="shop-section-title">ABILITIES</div>';
     for (const [key, def] of Object.entries(CONSTANTS.ABILITIES)) {
       const lvl = (me.abilities && me.abilities[key]) || 0;
-      const maxed = lvl >= def.maxLevel;
-      const cost = maxed ? '-' : def.costs[lvl];
-      const canBuy = !maxed && myCurrency >= cost;
-      const label = lvl === 0 ? 'BUY' : (maxed ? 'MAX' : 'UPG');
+      const cost = CONSTANTS.getAbilityCost(key, lvl);
+      const canBuy = myCurrency >= cost;
+      const label = lvl === 0 ? 'BUY' : 'UPG';
 
-      html += `<div class="shop-item ${canBuy ? 'buyable' : ''} ${maxed ? 'maxed' : ''}" data-type="ability" data-key="${key}">
+      html += `<div class="shop-item ${canBuy ? 'buyable' : ''}" data-type="ability" data-key="${key}">
         <span class="shop-item-name">[${def.key}] ${def.name}</span>
-        <span class="shop-item-level">${'\u25A0'.repeat(lvl)}${'\u25A1'.repeat(def.maxLevel - lvl)}</span>
-        <span class="shop-item-cost">${maxed ? 'MAX' : cost + ' CR'}</span>
+        <span class="shop-item-level">LVL ${lvl}</span>
+        <span class="shop-item-cost">${formatCost(cost)} CR</span>
         <span class="shop-item-label">${label}</span>
       </div>`;
     }
@@ -367,7 +382,7 @@ const Game = (() => {
     }
 
     // Currency
-    if (els.currency) els.currency.textContent = `${me.currency || 0} CR`;
+    if (els.currency) els.currency.textContent = `${formatCost(me.currency || 0)} CR`;
 
     // Powerup
     if (els.powerup) {
@@ -384,7 +399,7 @@ const Game = (() => {
     if (els.scores) {
       els.scores.innerHTML = state.players.map(p =>
         `<div class="score-entry">
-          <div class="score-color" style="background:${CONSTANTS.TANK_COLORS[p.colorIndex]}"></div>
+          <div class="score-color" style="background:${CONSTANTS.TANK_COLORS[p.colorIndex] || '#888'}"></div>
           <span>${state.scores[p.id] || 0}</span>
         </div>`
       ).join('');
@@ -395,7 +410,7 @@ const Game = (() => {
       if (currentMode === CONSTANTS.MODE_DOMINATION && state.domScores) {
         els.domScores.innerHTML = state.players.map(p =>
           `<span class="dom-entry">
-            <span class="score-dot" style="background:${CONSTANTS.TANK_COLORS[p.colorIndex]}"></span>
+            <span class="score-dot" style="background:${CONSTANTS.TANK_COLORS[p.colorIndex] || '#888'}"></span>
             ${Math.floor(state.domScores[p.id] || 0)}/${CONSTANTS.DOMINATION_WIN_SCORE}
           </span>`
         ).join('');
@@ -426,7 +441,7 @@ const Game = (() => {
         const onCooldown = cd > 0;
         const cdText = onCooldown ? `${Math.ceil(cd / 1000)}s` : '';
         abHtml += `<span class="ability-icon ${isActive ? 'active' : ''} ${onCooldown ? 'cooldown' : ''}" title="${def.key}">
-          ${def.key}:${def.name.substring(0, 4)}${cdText ? ' ' + cdText : ''}
+          ${def.key}:${def.name.substring(0, 4)} L${lvl}${cdText ? ' ' + cdText : ''}
         </span>`;
       }
       els.abilities.innerHTML = abHtml;

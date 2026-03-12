@@ -25,13 +25,17 @@ function generateRoomCode() {
   return code;
 }
 
-function createRoom(mode, deathPenalty) {
+function createRoom(mode, deathPenalty, mapSize) {
   const code = generateRoomCode();
   const seed = Date.now();
+  const mapDef = C.MAP_SIZES[mapSize] || C.MAP_SIZES.small;
   const room = {
     code,
     mode: mode || C.MODE_DOMINATION,
     deathPenalty: deathPenalty || C.DEATH_KEEP_UPGRADES,
+    mapSize: mapSize || 'small',
+    mapWidth: mapDef.width,
+    mapHeight: mapDef.height,
     state: 'waiting',
     players: new Map(),
     bullets: [],
@@ -50,6 +54,7 @@ function createRoom(mode, deathPenalty) {
     mineIdCounter: 0,
     tickInterval: null,
     broadcastInterval: null,
+    spawnPoints: C.generateSpawnPoints(mapDef.width, mapDef.height, C.MAX_PLAYERS),
   };
   rooms.set(code, room);
   return room;
@@ -152,7 +157,7 @@ function createPlayer(name, colorIndex) {
   };
 }
 
-// ─── Stat & Ability Helpers ──────────────────────────────────
+// ─── Stat & Ability Helpers (formula-based) ──────────────────
 function getStatLevel(player, key) {
   return player.stats[key] || 0;
 }
@@ -167,10 +172,10 @@ function hasAbility(player, key) {
 
 function getPlayerDamage(player) {
   const lvl = getStatLevel(player, 'firepower');
-  let dmg = lvl > 0 ? C.STATS.firepower.damage[lvl - 1] : C.BULLET_DAMAGE;
+  let dmg = C.getStatValue('firepower', 'damage', lvl);
   if (player.activeEffects.berserk) {
     const aLvl = getAbilityLevel(player, 'berserk');
-    dmg *= C.ABILITIES.berserk.damageMult[aLvl - 1];
+    dmg *= C.getAbilityValue('berserk', 'damageMult', aLvl);
   }
   return Math.round(dmg);
 }
@@ -178,25 +183,25 @@ function getPlayerDamage(player) {
 function getPlayerFireCooldown(player) {
   const lvl = getStatLevel(player, 'firepower');
   if (player.powerup === C.POWERUP_RAPID) return C.RAPID_FIRE_COOLDOWN;
-  let cd = lvl > 0 ? C.STATS.firepower.fireCooldown[lvl - 1] : C.FIRE_COOLDOWN;
+  let cd = C.getStatValue('firepower', 'fireCooldown', lvl);
   if (player.activeEffects.berserk) {
     const aLvl = getAbilityLevel(player, 'berserk');
-    cd *= C.ABILITIES.berserk.fireRateMult[aLvl - 1];
+    cd *= C.getAbilityValue('berserk', 'fireRateMult', aLvl);
   }
-  return Math.round(cd);
+  return Math.max(100, Math.round(cd));
 }
 
 function getPlayerBulletSpeed(player) {
   const lvl = getStatLevel(player, 'firepower');
-  return lvl > 0 ? C.STATS.firepower.bulletSpeed[lvl - 1] : C.BULLET_SPEED;
+  return C.getStatValue('firepower', 'bulletSpeed', lvl);
 }
 
 function getPlayerSpeed(player) {
   const lvl = getStatLevel(player, 'mobility');
-  let spd = lvl > 0 ? C.STATS.mobility.moveSpeed[lvl - 1] : C.TANK_SPEED;
+  let spd = C.getStatValue('mobility', 'moveSpeed', lvl);
   if (player.activeEffects.speedBoost) {
     const aLvl = getAbilityLevel(player, 'speedBoost');
-    spd *= C.ABILITIES.speedBoost.speedMult[aLvl - 1];
+    spd *= C.getAbilityValue('speedBoost', 'speedMult', aLvl);
   }
   if (player.powerup === C.POWERUP_SPEED) spd *= C.SPEED_BOOST;
   return spd;
@@ -204,17 +209,17 @@ function getPlayerSpeed(player) {
 
 function getPlayerRotation(player) {
   const lvl = getStatLevel(player, 'mobility');
-  return lvl > 0 ? C.STATS.mobility.rotationSpeed[lvl - 1] : C.TANK_ROTATION_SPEED;
+  return C.getStatValue('mobility', 'rotationSpeed', lvl);
 }
 
 function getPlayerMaxHp(player) {
   const lvl = getStatLevel(player, 'defense');
-  return lvl > 0 ? C.STATS.defense.maxHp[lvl - 1] : C.TANK_MAX_HP;
+  return Math.round(C.getStatValue('defense', 'maxHp', lvl));
 }
 
 function getPlayerArmor(player) {
   const lvl = getStatLevel(player, 'defense');
-  return lvl > 0 ? C.STATS.defense.armor[lvl - 1] : 1.0;
+  return C.getStatValue('defense', 'armor', lvl);
 }
 
 
@@ -222,8 +227,8 @@ function getPlayerArmor(player) {
 function spawnTank(room, playerId) {
   const player = room.players.get(playerId);
   if (!player) return;
-  const spawnIdx = player.colorIndex % C.SPAWN_POINTS.length;
-  const sp = C.SPAWN_POINTS[spawnIdx];
+  const spawnIdx = player.colorIndex % room.spawnPoints.length;
+  const sp = room.spawnPoints[spawnIdx];
   player.x = sp.x * C.TILE_SIZE + C.TILE_SIZE / 2;
   player.y = sp.y * C.TILE_SIZE + C.TILE_SIZE / 2;
   player.angle = 0;
@@ -248,17 +253,18 @@ function startGame(room) {
   room.lastPowerupSpawn = Date.now();
 
   room.mapSeed = Date.now();
-  room.map = generateMap(C.MAP_WIDTH, C.MAP_HEIGHT, room.mapSeed, C.CAPTURE_ZONES);
+  const captureZoneDefs = C.generateCaptureZones(room.mapWidth, room.mapHeight);
+  room.map = generateMap(room.mapWidth, room.mapHeight, room.mapSeed, captureZoneDefs, room.spawnPoints);
 
   // Reset scores
   room.scores = {};
   room.domScores = {};
 
   // Init capture zones for domination
-  room.captureZones = C.CAPTURE_ZONES.map(z => ({
+  room.captureZones = captureZoneDefs.map(z => ({
     x: z.x, y: z.y, label: z.label,
     owner: null,
-    captureProgress: {},  // { playerId: seconds }
+    captureProgress: {},
     contested: false
   }));
 
@@ -284,6 +290,8 @@ function startGame(room) {
   io.to(room.code).emit('gameStart', {
     map: room.map,
     mapSeed: room.mapSeed,
+    mapWidth: room.mapWidth,
+    mapHeight: room.mapHeight,
     mode: room.mode,
     deathPenalty: room.deathPenalty,
     practice: room.practice || false,
@@ -311,7 +319,6 @@ function broadcastState(room) {
   for (const [viewerId] of room.players) {
     const socket = io.sockets.sockets.get(viewerId);
     if (socket) {
-      // Attach per-player data (currency, stats, abilities, cooldowns)
       state.myId = viewerId;
       socket.emit('gameState', state);
     }
@@ -358,6 +365,9 @@ function serializePlayer(id, p) {
 // ─── Main Update Loop ─────────────────────────────────────────
 function updateGame(room, dt, now) {
   if (room.state !== 'playing') return;
+
+  const mapW = room.mapWidth;
+  const mapH = room.mapHeight;
 
   // Update players
   for (const [id, p] of room.players) {
@@ -433,7 +443,7 @@ function updateGame(room, dt, now) {
           const def = C.ABILITIES[abilityKey];
           const lvl = getAbilityLevel(p, abilityKey);
           p.activeEffects[abilityKey] = { remaining: def.duration };
-          p.abilityCooldowns[abilityKey] = def.cooldown[lvl - 1];
+          p.abilityCooldowns[abilityKey] = C.getAbilityValue(abilityKey, 'cooldown', lvl);
           io.to(room.code).emit('abilityUsed', { id, ability: abilityKey });
         }
       }
@@ -441,17 +451,17 @@ function updateGame(room, dt, now) {
       // Instant abilities
       if (p.input.regenBurst && hasAbility(p, 'regenBurst') && (p.abilityCooldowns.regenBurst || 0) <= 0) {
         const lvl = getAbilityLevel(p, 'regenBurst');
-        const def = C.ABILITIES.regenBurst;
-        p.hp = Math.min(p.hp + def.healAmount[lvl - 1], p.maxHp);
-        p.abilityCooldowns.regenBurst = def.cooldown[lvl - 1];
+        const healAmt = Math.round(C.getAbilityValue('regenBurst', 'healAmount', lvl));
+        p.hp = Math.min(p.hp + healAmt, p.maxHp);
+        p.abilityCooldowns.regenBurst = C.getAbilityValue('regenBurst', 'cooldown', lvl);
         io.to(room.code).emit('abilityUsed', { id, ability: 'regenBurst', x: p.x, y: p.y });
       }
 
       if (p.input.mine && hasAbility(p, 'mine') && (p.abilityCooldowns.mine || 0) <= 0) {
         const lvl = getAbilityLevel(p, 'mine');
-        const def = C.ABILITIES.mine;
-        placeMine(room, id, def.damage[lvl - 1]);
-        p.abilityCooldowns.mine = def.cooldown[lvl - 1];
+        const mineDmg = Math.round(C.getAbilityValue('mine', 'damage', lvl));
+        placeMine(room, id, mineDmg);
+        p.abilityCooldowns.mine = C.getAbilityValue('mine', 'cooldown', lvl);
       }
     }
 
@@ -495,8 +505,9 @@ function updateGame(room, dt, now) {
     }
   }
 
-  // Spawn credit pickups
-  if (now - room.lastCreditSpawn >= C.CREDIT_SPAWN_INTERVAL && room.creditPickups.length < C.CREDIT_MAX_ON_MAP) {
+  // Spawn credit pickups (scaled with player count)
+  const creditMax = C.getCreditMaxOnMap(room.players.size);
+  if (now - room.lastCreditSpawn >= C.CREDIT_SPAWN_INTERVAL && room.creditPickups.length < creditMax) {
     spawnCreditPickup(room);
     room.lastCreditSpawn = now;
   }
@@ -523,6 +534,9 @@ function updateGame(room, dt, now) {
 }
 
 function updateBullets(room, dt) {
+  const mapW = room.mapWidth;
+  const mapH = room.mapHeight;
+
   for (let i = room.bullets.length - 1; i >= 0; i--) {
     const b = room.bullets[i];
     const rad = (b.angle * Math.PI) / 180;
@@ -532,7 +546,7 @@ function updateBullets(room, dt) {
     const tileX = Math.floor(b.x / C.TILE_SIZE);
     const tileY = Math.floor(b.y / C.TILE_SIZE);
 
-    if (tileX < 0 || tileX >= C.MAP_WIDTH || tileY < 0 || tileY >= C.MAP_HEIGHT) {
+    if (tileX < 0 || tileX >= mapW || tileY < 0 || tileY >= mapH) {
       room.bullets.splice(i, 1);
       continue;
     }
@@ -568,10 +582,8 @@ function updateBullets(room, dt) {
       const dx = b.x - p.x, dy = b.y - p.y;
       if (Math.sqrt(dx*dx + dy*dy) < C.TANK_SIZE / 2) {
         if (p.activeEffects && p.activeEffects.shield) {
-          // Shield ability: fully invincible, bullet absorbed
           io.to(room.code).emit('shieldBreak', { id: pid });
         } else if (p.shieldActive) {
-          // Powerup shield: breaks on one hit
           p.shieldActive = false;
           p.powerup = null;
           io.to(room.code).emit('shieldBreak', { id: pid });
@@ -612,9 +624,9 @@ function killPlayer(room, victimId, killerId) {
       // Vampire: multiply kill credits + heal on kill
       if (killer.activeEffects.vampire) {
         const vLvl = getAbilityLevel(killer, 'vampire');
-        const def = C.ABILITIES.vampire;
-        earnedCR = C.KILL_CURRENCY * def.killCRMult[vLvl - 1];
-        const healAmt = Math.floor(killer.maxHp * def.healPercent[vLvl - 1]);
+        earnedCR = Math.round(C.KILL_CURRENCY * C.getAbilityValue('vampire', 'killCRMult', vLvl));
+        const healPct = C.getAbilityValue('vampire', 'healPercent', vLvl);
+        const healAmt = Math.floor(killer.maxHp * healPct);
         killer.hp = Math.min(killer.hp + healAmt, killer.maxHp);
         io.to(room.code).emit('vampireProc', { id: killerId, heal: healAmt, earnedCR });
       }
@@ -725,6 +737,8 @@ function placeMine(room, playerId, damage) {
 
 // ─── Collision ────────────────────────────────────────────────
 function collidesWithMap(room, player, x, y, radius) {
+  const mapW = room.mapWidth;
+  const mapH = room.mapHeight;
   const minTX = Math.floor((x - radius) / C.TILE_SIZE);
   const maxTX = Math.floor((x + radius) / C.TILE_SIZE);
   const minTY = Math.floor((y - radius) / C.TILE_SIZE);
@@ -732,7 +746,7 @@ function collidesWithMap(room, player, x, y, radius) {
 
   for (let ty = minTY; ty <= maxTY; ty++) {
     for (let tx = minTX; tx <= maxTX; tx++) {
-      if (tx < 0 || tx >= C.MAP_WIDTH || ty < 0 || ty >= C.MAP_HEIGHT) return true;
+      if (tx < 0 || tx >= mapW || ty < 0 || ty >= mapH) return true;
       const tile = room.map[ty][tx];
       if (tile === C.TILE_WALL || tile === C.TILE_STEEL) {
         const closestX = Math.max(tx * C.TILE_SIZE, Math.min(x, (tx + 1) * C.TILE_SIZE));
@@ -762,7 +776,7 @@ function collidesWithTanks(room, selfId, x, y) {
 
 // ─── Helpers ──────────────────────────────────────────────────
 function canRespawn(room, playerId) {
-  if (room.practice) return true; // Always respawn in practice
+  if (room.practice) return true;
   const p = room.players.get(playerId);
   if (room.mode === C.MODE_FFA) return p.lives > 0;
   return true;
@@ -792,8 +806,8 @@ function spawnPowerup(room) {
   const type = types[Math.floor(Math.random() * types.length)];
   let x, y, attempts = 0;
   do {
-    x = 3 + Math.floor(Math.random() * (C.MAP_WIDTH - 6));
-    y = 3 + Math.floor(Math.random() * (C.MAP_HEIGHT - 6));
+    x = 3 + Math.floor(Math.random() * (room.mapWidth - 6));
+    y = 3 + Math.floor(Math.random() * (room.mapHeight - 6));
     attempts++;
   } while (room.map[y][x] !== C.TILE_EMPTY && attempts < 50);
   if (attempts >= 50) return;
@@ -803,12 +817,12 @@ function spawnPowerup(room) {
 }
 
 function spawnCreditPickup(room) {
-  const isGold = Math.random() < 0.25; // 25% chance of gold (50 CR), else silver (25 CR)
+  const isGold = Math.random() < 0.25;
   const value = isGold ? 50 : 25;
   let x, y, attempts = 0;
   do {
-    x = 3 + Math.floor(Math.random() * (C.MAP_WIDTH - 6));
-    y = 3 + Math.floor(Math.random() * (C.MAP_HEIGHT - 6));
+    x = 3 + Math.floor(Math.random() * (room.mapWidth - 6));
+    y = 3 + Math.floor(Math.random() * (room.mapHeight - 6));
     attempts++;
   } while (room.map[y][x] !== C.TILE_EMPTY && attempts < 50);
   if (attempts >= 50) return;
@@ -829,7 +843,7 @@ function applyPowerup(player, type) {
 
 function checkWinCondition(room) {
   if (room.state !== 'playing') return;
-  if (room.practice) return; // No win condition in practice
+  if (room.practice) return;
 
   if (room.mode === C.MODE_ROUNDS) {
     for (const [id, score] of Object.entries(room.scores)) {
@@ -844,7 +858,6 @@ function checkWinCondition(room) {
       endGame(room, alive[0] || null);
     }
   }
-  // Domination checked in updateCaptureZones
 }
 
 function endGame(room, winnerId) {
@@ -878,7 +891,7 @@ function createBot(name, colorIndex) {
     dirChangeTimer: 0,
     dirChangeCooldown: 1 + Math.random() * 2,
     moving: true,
-    turning: 0,    // -1, 0, 1
+    turning: 0,
     firing: false,
     fireTimer: 0,
     fireCooldown: 1.5 + Math.random(),
@@ -892,7 +905,6 @@ function updateBots(room, dt, now) {
 
     const bs = p.botState;
 
-    // Direction change timer
     bs.dirChangeTimer += dt;
     if (bs.dirChangeTimer >= bs.dirChangeCooldown) {
       bs.dirChangeTimer = 0;
@@ -915,7 +927,6 @@ function updateBots(room, dt, now) {
       }
     }
 
-    // If a player is somewhat close, turn toward them and fire
     if (nearestAngle !== null && nearestDist < 12 * C.TILE_SIZE) {
       let diff = nearestAngle - p.angle;
       while (diff > 180) diff -= 360;
@@ -924,7 +935,6 @@ function updateBots(room, dt, now) {
       if (Math.abs(diff) < 20) bs.firing = true;
       else bs.firing = false;
     } else {
-      // Random firing
       bs.fireTimer += dt;
       if (bs.fireTimer >= bs.fireCooldown) {
         bs.fireTimer = 0;
@@ -935,7 +945,6 @@ function updateBots(room, dt, now) {
       }
     }
 
-    // Set bot input
     p.input = {
       up: bs.moving,
       down: false,
@@ -944,7 +953,6 @@ function updateBots(room, dt, now) {
       fire: bs.firing,
     };
 
-    // If bot hits a wall, reverse direction
     const rad = (p.angle * Math.PI) / 180;
     const testX = p.x + Math.sin(rad) * (C.TANK_SIZE / 2 + 4);
     const testY = p.y - Math.cos(rad) * (C.TANK_SIZE / 2 + 4);
@@ -956,7 +964,6 @@ function updateBots(room, dt, now) {
 }
 
 function startPractice(room, socketId) {
-  // Give player starting currency
   const player = room.players.get(socketId);
   if (player) player.currency = 500;
 
@@ -976,7 +983,6 @@ function startPractice(room, socketId) {
 
   // Override: give practice player currency after startGame resets it
   if (player) player.currency = 500;
-  // Ensure bots have the new fields
   for (const [id, p] of room.players) {
     if (p.isBot) {
       p.stats = {};
@@ -991,16 +997,16 @@ function startPractice(room, socketId) {
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
 
-  socket.on('createRoom', ({ name, mode, deathPenalty }) => {
+  socket.on('createRoom', ({ name, mode, deathPenalty, mapSize }) => {
     removePlayerFromRoom(socket.id);
-    const room = createRoom(mode, deathPenalty);
+    const room = createRoom(mode, deathPenalty, mapSize);
     const colorIndex = getPlayerColorIndex(room);
     const player = createPlayer(name, colorIndex);
     room.players.set(socket.id, player);
     room.scores[socket.id] = 0;
     room.domScores[socket.id] = 0;
     socket.join(room.code);
-    socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: socket.id, mode: room.mode, deathPenalty: room.deathPenalty });
+    socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: socket.id, mode: room.mode, deathPenalty: room.deathPenalty, mapSize: room.mapSize });
   });
 
   socket.on('joinRoom', ({ name, code }) => {
@@ -1016,13 +1022,13 @@ io.on('connection', (socket) => {
     room.scores[socket.id] = 0;
     room.domScores[socket.id] = 0;
     socket.join(room.code);
-    socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id });
+    socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize });
     socket.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
   });
 
   socket.on('quickPlay', ({ name }) => {
     let room = findQuickPlayRoom();
-    if (!room) room = createRoom(C.MODE_DOMINATION, C.DEATH_KEEP_UPGRADES);
+    if (!room) room = createRoom(C.MODE_DOMINATION, C.DEATH_KEEP_UPGRADES, 'small');
     removePlayerFromRoom(socket.id);
     const colorIndex = getPlayerColorIndex(room);
     const player = createPlayer(name, colorIndex);
@@ -1030,21 +1036,20 @@ io.on('connection', (socket) => {
     room.scores[socket.id] = 0;
     room.domScores[socket.id] = 0;
     socket.join(room.code);
-    socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id });
+    socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize });
     socket.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
   });
 
   socket.on('startPractice', ({ name }) => {
     removePlayerFromRoom(socket.id);
-    const room = createRoom(C.MODE_DOMINATION, C.DEATH_KEEP_UPGRADES);
+    const room = createRoom(C.MODE_DOMINATION, C.DEATH_KEEP_UPGRADES, 'small');
     const colorIndex = 0;
     const player = createPlayer(name || 'Player', colorIndex);
     room.players.set(socket.id, player);
     room.scores[socket.id] = 0;
     room.domScores[socket.id] = 0;
     socket.join(room.code);
-    socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id });
-    // Start practice immediately
+    socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize });
     startPractice(room, socket.id);
   });
 
@@ -1080,8 +1085,8 @@ io.on('connection', (socket) => {
         const def = C.STATS[key];
         if (!def) return;
         const currentLevel = getStatLevel(player, key);
-        if (currentLevel >= def.maxLevel) return;
-        const cost = def.costs[currentLevel];
+        // No level cap — unlimited upgrades
+        const cost = C.getStatCost(key, currentLevel);
         if (player.currency < cost) return;
         player.currency -= cost;
         player.stats[key] = currentLevel + 1;
@@ -1095,8 +1100,8 @@ io.on('connection', (socket) => {
         const def = C.ABILITIES[key];
         if (!def) return;
         const currentLevel = getAbilityLevel(player, key);
-        if (currentLevel >= def.maxLevel) return;
-        const cost = def.costs[currentLevel];
+        // No level cap — unlimited upgrades
+        const cost = C.getAbilityCost(key, currentLevel);
         if (player.currency < cost) return;
         player.currency -= cost;
         player.abilities[key] = currentLevel + 1;
@@ -1114,5 +1119,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Tank Battle v2 server running on http://localhost:${PORT}`);
+  console.log(`Tank Battle v3 server running on http://localhost:${PORT}`);
 });

@@ -1,7 +1,8 @@
-// Procedural map generator for the tank game v2
+// Procedural map generator for the tank game v3
 // Generates strategic maps with steel chokepoints and capture zones
+// Supports variable map dimensions
 
-function generateMap(width, height, seed, captureZones) {
+function generateMap(width, height, seed, captureZones, spawnPoints) {
   const rng = createRNG(seed || Date.now());
   const map = [];
 
@@ -24,7 +25,7 @@ function generateMap(width, height, seed, captureZones) {
   }
 
   // Spawn zones (4x4 clear around each spawn)
-  const spawnZones = [
+  const spawnZones = spawnPoints || [
     { x: 3, y: 3 },
     { x: width - 4, y: height - 4 },
     { x: width - 4, y: 3 },
@@ -46,33 +47,39 @@ function generateMap(width, height, seed, captureZones) {
   }
 
   // ─── Steel structures (chokepoints) ─────────────────────
-  // Create major steel wall formations that define lanes and chokepoints
-
-  // Central cross structure
   const cx = Math.floor(width / 2);
   const cy = Math.floor(height / 2);
 
+  // Scale structure sizes proportionally to map size
+  const hScale = width / 40;   // ratio to default small map
+  const vScale = height / 30;
+
   // Horizontal steel walls through center area
-  for (let i = -4; i <= 4; i++) {
+  const hExtent = Math.floor(4 * hScale);
+  for (let i = -hExtent; i <= hExtent; i++) {
     if (Math.abs(i) <= 1) continue; // Gap in the middle
     const tx = cx + i;
-    if (!isProtected(tx, cy - 2)) map[cy - 2][tx] = 3;
-    if (!isProtected(tx, cy + 2)) map[cy + 2][tx] = 3;
+    if (tx > 0 && tx < width - 1) {
+      if (!isProtected(tx, cy - 2)) map[cy - 2][tx] = 3;
+      if (!isProtected(tx, cy + 2)) map[cy + 2][tx] = 3;
+    }
   }
 
   // Vertical steel walls
-  for (let i = -3; i <= 3; i++) {
+  const vExtent = Math.floor(3 * vScale);
+  const sideOffset = Math.floor(5 * hScale);
+  for (let i = -vExtent; i <= vExtent; i++) {
     if (Math.abs(i) <= 1) continue;
-    if (!isProtected(cx - 5, cy + i)) map[cy + i][cx - 5] = 3;
-    if (!isProtected(cx + 5, cy + i)) map[cy + i][cx + 5] = 3;
+    if (cx - sideOffset > 0 && !isProtected(cx - sideOffset, cy + i)) map[cy + i][cx - sideOffset] = 3;
+    if (cx + sideOffset < width - 1 && !isProtected(cx + sideOffset, cy + i)) map[cy + i][cx + sideOffset] = 3;
   }
 
-  // Corner bunkers (L-shaped steel)
+  // Corner bunkers (L-shaped steel) — scaled positions
   const bunkerOffsets = [
-    { bx: 8, by: 6 },
-    { bx: width - 9, by: 6 },
-    { bx: 8, by: height - 7 },
-    { bx: width - 9, by: height - 7 }
+    { bx: Math.floor(8 * hScale), by: Math.floor(6 * vScale) },
+    { bx: width - 1 - Math.floor(8 * hScale), by: Math.floor(6 * vScale) },
+    { bx: Math.floor(8 * hScale), by: height - 1 - Math.floor(6 * vScale) },
+    { bx: width - 1 - Math.floor(8 * hScale), by: height - 1 - Math.floor(6 * vScale) }
   ];
   for (const b of bunkerOffsets) {
     const shapes = [
@@ -88,14 +95,14 @@ function generateMap(width, height, seed, captureZones) {
     }
   }
 
-  // Random steel pillars scattered across map
-  const numPillars = 6 + Math.floor(rng() * 5);
+  // Random steel pillars — scale count with map area
+  const areaRatio = (width * height) / (40 * 30);
+  const numPillars = Math.floor((6 + Math.floor(rng() * 5)) * areaRatio);
   for (let i = 0; i < numPillars; i++) {
     const px = 4 + Math.floor(rng() * (width - 8));
     const py = 4 + Math.floor(rng() * (height - 8));
     if (!isProtected(px, py) && map[py][px] === 0) {
       map[py][px] = 3;
-      // Sometimes make 2x1 or 1x2
       if (rng() > 0.5) {
         const dx = rng() > 0.5 ? 1 : 0;
         const dy = dx ? 0 : 1;
@@ -107,22 +114,18 @@ function generateMap(width, height, seed, captureZones) {
   }
 
   // ─── Steel lane walls ──────────────────────────────────
-  // Create horizontal lanes across the map
   const laneY1 = Math.floor(height * 0.33);
   const laneY2 = Math.floor(height * 0.66);
   for (let x = 6; x < width - 6; x++) {
-    // Lane 1 - leave gaps
     if (x % 7 < 5 && !isProtected(x, laneY1)) {
       map[laneY1][x] = 3;
     }
-    // Lane 2 - offset gaps
     if ((x + 3) % 7 < 5 && !isProtected(x, laneY2)) {
       map[laneY2][x] = 3;
     }
   }
 
   // ─── Brick fill ─────────────────────────────────────────
-  // Add brick walls for destructible cover
   for (let y = 2; y < height - 2; y++) {
     for (let x = 2; x < width - 2; x++) {
       if (map[y][x] !== 0) continue;
@@ -130,21 +133,19 @@ function generateMap(width, height, seed, captureZones) {
 
       const noise = rng();
 
-      // Brick clusters near steel walls
       if (isNearSteel(map, x, y, width, height) && noise < 0.3) {
         map[y][x] = 2;
         continue;
       }
 
-      // Scattered bricks
       if (noise > 0.93) {
         map[y][x] = 2;
       }
     }
   }
 
-  // A few brick wall segments
-  const numBrickWalls = 2 + Math.floor(rng() * 3);
+  // Brick wall segments — scale count
+  const numBrickWalls = Math.floor((2 + Math.floor(rng() * 3)) * areaRatio);
   for (let i = 0; i < numBrickWalls; i++) {
     const horizontal = rng() > 0.5;
     const length = 3 + Math.floor(rng() * 4);
@@ -196,7 +197,7 @@ function ensureConnectivity(map, spawnZones, width, height) {
 
   for (let i = 1; i < spawnZones.length; i++) {
     const sp = spawnZones[i];
-    if (!visited[sp.y][sp.x]) {
+    if (sp.y < height && sp.x < width && !visited[sp.y][sp.x]) {
       carvePath(map, sp.x, sp.y, spawnZones[0].x, spawnZones[0].y);
     }
   }
@@ -205,7 +206,9 @@ function ensureConnectivity(map, spawnZones, width, height) {
 function carvePath(map, x1, y1, x2, y2) {
   let cx = x1, cy = y1;
   while (cx !== x2 || cy !== y2) {
-    if (map[cy][cx] === 2 || map[cy][cx] === 3) map[cy][cx] = 0;
+    if (cy >= 0 && cy < map.length && cx >= 0 && cx < map[0].length) {
+      if (map[cy][cx] === 2 || map[cy][cx] === 3) map[cy][cx] = 0;
+    }
     if (cx < x2) cx++;
     else if (cx > x2) cx--;
     else if (cy < y2) cy++;
