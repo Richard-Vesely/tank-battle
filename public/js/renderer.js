@@ -1,6 +1,8 @@
-// Retro pixel-art renderer v3 — stats/abilities VFX
+// Retro pixel-art renderer v3 — dynamic map sizes, stats/abilities VFX
 const Renderer = (() => {
   let canvas, ctx;
+  let currentMapWidth = CONSTANTS.MAP_WIDTH;
+  let currentMapHeight = CONSTANTS.MAP_HEIGHT;
 
   const COLORS = {
     bg: '#1a1a1a',
@@ -22,9 +24,15 @@ const Renderer = (() => {
     window.addEventListener('resize', resize);
   }
 
+  function setMapSize(w, h) {
+    currentMapWidth = w;
+    currentMapHeight = h;
+    resize();
+  }
+
   function resize() {
-    const mapW = CONSTANTS.MAP_WIDTH * CONSTANTS.TILE_SIZE;
-    const mapH = CONSTANTS.MAP_HEIGHT * CONSTANTS.TILE_SIZE;
+    const mapW = currentMapWidth * CONSTANTS.TILE_SIZE;
+    const mapH = currentMapHeight * CONSTANTS.TILE_SIZE;
     const scaleX = window.innerWidth / mapW;
     const scaleY = window.innerHeight / mapH;
     const scale = Math.min(scaleX, scaleY);
@@ -39,7 +47,7 @@ const Renderer = (() => {
 
   function clear() {
     ctx.fillStyle = COLORS.bg;
-    ctx.fillRect(0, 0, CONSTANTS.MAP_WIDTH * CONSTANTS.TILE_SIZE, CONSTANTS.MAP_HEIGHT * CONSTANTS.TILE_SIZE);
+    ctx.fillRect(0, 0, currentMapWidth * CONSTANTS.TILE_SIZE, currentMapHeight * CONSTANTS.TILE_SIZE);
   }
 
   function drawMap(map) {
@@ -133,7 +141,7 @@ const Renderer = (() => {
   function drawTank(x, y, angle, colorIndex, hp, maxHp, alive, name, shieldActive, activeEffects) {
     if (!alive) return;
 
-    const color = CONSTANTS.TANK_COLORS[colorIndex];
+    const color = CONSTANTS.TANK_COLORS[colorIndex] || '#888';
     const size = CONSTANTS.TANK_SIZE;
     const hs = size / 2;
     const effects = activeEffects || [];
@@ -226,7 +234,6 @@ const Renderer = (() => {
       ctx.beginPath();
       ctx.arc(x, y, hs + 5, 0, Math.PI * 2);
       ctx.stroke();
-      // Small drain particles
       for (let i = 0; i < 4; i++) {
         const a = (Date.now() / 400 + i * 1.57);
         const d = hs + 2 + Math.sin(Date.now() / 200 + i) * 4;
@@ -369,55 +376,15 @@ const Renderer = (() => {
     ctx.restore();
   }
 
-  // ─── New Ability VFX ─────────────────────────────────────────
-  function drawSnipeReticle(x, y, radius) {
-    ctx.save();
-    ctx.strokeStyle = '#FF1744';
-    ctx.lineWidth = 2;
-    ctx.globalAlpha = 0.6 + Math.sin(Date.now() / 150) * 0.2;
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.stroke();
-    // Crosshair lines
-    ctx.beginPath();
-    ctx.moveTo(x - radius - 5, y); ctx.lineTo(x - radius / 2, y);
-    ctx.moveTo(x + radius / 2, y); ctx.lineTo(x + radius + 5, y);
-    ctx.moveTo(x, y - radius - 5); ctx.lineTo(x, y - radius / 2);
-    ctx.moveTo(x, y + radius / 2); ctx.lineTo(x, y + radius + 5);
-    ctx.stroke();
-    // Center dot
-    ctx.fillStyle = '#FF1744';
-    ctx.fillRect(x - 1, y - 1, 2, 2);
-    ctx.restore();
-  }
-
-  function drawSnipeImpact(x, y, radius, progress) {
-    ctx.save();
-    ctx.globalAlpha = (1 - progress) * 0.6;
-    ctx.strokeStyle = '#FF1744';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(x, y, radius * (0.5 + progress * 0.5), 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = '#FF5722';
-    ctx.globalAlpha = (1 - progress) * 0.3;
-    ctx.beginPath();
-    ctx.arc(x, y, radius * progress, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-
   function drawRegenBurst(x, y, progress) {
     ctx.save();
     ctx.globalAlpha = (1 - progress) * 0.7;
     ctx.fillStyle = '#4CAF50';
-    // Green particles radiating outward
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
       const d = 20 * progress;
       ctx.fillRect(x + Math.cos(a) * d - 2, y + Math.sin(a) * d - 2, 4, 4);
     }
-    // Green ring
     ctx.strokeStyle = '#4CAF50';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -441,7 +408,7 @@ const Renderer = (() => {
   }
 
   return {
-    init, resize, clear, drawMap,
+    init, resize, setMapSize, clear, drawMap,
     drawCaptureZone, drawTank, drawBullet, drawPowerup, drawCreditPickup,
     drawMine, drawDeathExplosion, drawRegenBurst
   };
