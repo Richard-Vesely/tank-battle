@@ -169,14 +169,14 @@ const CONSTANTS = {
 CONSTANTS.getStatCost = function(key, currentLevel) {
   const def = CONSTANTS.STATS[key];
   if (!def) return Infinity;
-  return Math.round(def.baseCost * Math.pow(def.costMult, currentLevel));
+  return Math.min(999999999, Math.round(def.baseCost * Math.pow(def.costMult, currentLevel)));
 };
 
 /** Get the cost to upgrade an ability to the next level */
 CONSTANTS.getAbilityCost = function(key, currentLevel) {
   const def = CONSTANTS.ABILITIES[key];
   if (!def) return Infinity;
-  return Math.round(def.baseCost * Math.pow(def.costMult, currentLevel));
+  return Math.min(999999999, Math.round(def.baseCost * Math.pow(def.costMult, currentLevel)));
 };
 
 /** Get a stat's computed value at a given level.
@@ -270,6 +270,20 @@ CONSTANTS.generateCaptureZones = function(width, height) {
 CONSTANTS.getCreditMaxOnMap = function(playerCount) {
   const extra = Math.max(0, playerCount - 4);
   return Math.ceil(CONSTANTS.CREDIT_MAX_ON_MAP_BASE + extra * CONSTANTS.CREDIT_MAX_PER_EXTRA_PLAYER);
+};
+
+// ─── Math Utilities ──────────────────────────────────────────
+CONSTANTS.degToRad = function(angle) {
+  return (angle * Math.PI) / 180;
+};
+
+CONSTANTS.distSq = function(x1, y1, x2, y2) {
+  const dx = x1 - x2, dy = y1 - y2;
+  return dx * dx + dy * dy;
+};
+
+CONSTANTS.withinDist = function(x1, y1, x2, y2, dist) {
+  return CONSTANTS.distSq(x1, y1, x2, y2) < dist * dist;
 };
 
 if (typeof module !== 'undefined' && module.exports) {

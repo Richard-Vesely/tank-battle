@@ -1,0 +1,131 @@
+const C = require('../shared/constants');
+const { rooms, playerToRoom } = require('./state');
+const { createRoom, findQuickPlayRoom, getPlayersInfo, getPlayerColorIndex } = require('./rooms');
+const { createPlayer, getStatLevel, getAbilityLevel, getPlayerMaxHp } = require('./player');
+const { removePlayerFromRoom } = require('./combat');
+const { startGame, startPractice } = require('./game');
+
+function registerHandlers(io) {
+  io.on('connection', (socket) => {
+    console.log(`Player connected: ${socket.id}`);
+
+    socket.on('createRoom', ({ name, mode, deathPenalty, mapSize }) => {
+      removePlayerFromRoom(socket.id);
+      const room = createRoom(mode, deathPenalty, mapSize);
+      const colorIndex = getPlayerColorIndex(room);
+      const player = createPlayer(name, colorIndex);
+      room.players.set(socket.id, player);
+      playerToRoom.set(socket.id, room);
+      room.scores[socket.id] = 0;
+      room.domScores[socket.id] = 0;
+      socket.join(room.code);
+      socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: socket.id, mode: room.mode, deathPenalty: room.deathPenalty, mapSize: room.mapSize });
+    });
+
+    socket.on('joinRoom', ({ name, code }) => {
+      const room = rooms.get(code.toUpperCase());
+      if (!room) return socket.emit('error', { message: 'Room not found' });
+      if (room.state !== 'waiting') return socket.emit('error', { message: 'Game in progress' });
+      if (room.players.size >= C.MAX_PLAYERS) return socket.emit('error', { message: 'Room full' });
+
+      removePlayerFromRoom(socket.id);
+      const colorIndex = getPlayerColorIndex(room);
+      const player = createPlayer(name, colorIndex);
+      room.players.set(socket.id, player);
+      playerToRoom.set(socket.id, room);
+      room.scores[socket.id] = 0;
+      room.domScores[socket.id] = 0;
+      socket.join(room.code);
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize });
+      socket.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
+    });
+
+    socket.on('quickPlay', ({ name }) => {
+      let room = findQuickPlayRoom();
+      if (!room) room = createRoom(C.MODE_DOMINATION, C.DEATH_KEEP_UPGRADES, 'small');
+      removePlayerFromRoom(socket.id);
+      const colorIndex = getPlayerColorIndex(room);
+      const player = createPlayer(name, colorIndex);
+      room.players.set(socket.id, player);
+      playerToRoom.set(socket.id, room);
+      room.scores[socket.id] = 0;
+      room.domScores[socket.id] = 0;
+      socket.join(room.code);
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize });
+      socket.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
+    });
+
+    socket.on('startPractice', ({ name, deathPenalty, mapSize }) => {
+      removePlayerFromRoom(socket.id);
+      const room = createRoom(C.MODE_DOMINATION, deathPenalty || C.DEATH_KEEP_UPGRADES, mapSize || 'small');
+      const colorIndex = 0;
+      const player = createPlayer(name || 'Player', colorIndex);
+      room.players.set(socket.id, player);
+      playerToRoom.set(socket.id, room);
+      room.scores[socket.id] = 0;
+      room.domScores[socket.id] = 0;
+      socket.join(room.code);
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize });
+      startPractice(room, socket.id);
+    });
+
+    socket.on('toggleReady', () => {
+      const room = playerToRoom.get(socket.id);
+      if (!room) return;
+      const player = room.players.get(socket.id);
+      if (!player) return;
+      player.ready = !player.ready;
+      io.to(room.code).emit('playerReady', { id: socket.id, ready: player.ready, players: getPlayersInfo(room) });
+      if (room.players.size >= C.MIN_PLAYERS) {
+        let allReady = true;
+        for (const [, p] of room.players) { if (!p.ready) { allReady = false; break; } }
+        if (allReady) startGame(room);
+      }
+    });
+
+    socket.on('input', (input) => {
+      const room = playerToRoom.get(socket.id);
+      if (!room) return;
+      const player = room.players.get(socket.id);
+      if (player) player.input = input;
+    });
+
+    socket.on('purchase', ({ type, key }) => {
+      const room = playerToRoom.get(socket.id);
+      if (!room) return;
+      const player = room.players.get(socket.id);
+      if (!player || room.state !== 'playing') return;
+
+      if (type === 'stat') {
+        const def = C.STATS[key];
+        if (!def) return;
+        const currentLevel = getStatLevel(player, key);
+        const cost = C.getStatCost(key, currentLevel);
+        if (player.currency < cost) return;
+        player.currency -= cost;
+        player.stats[key] = currentLevel + 1;
+        if (key === 'defense') {
+          player.maxHp = getPlayerMaxHp(player);
+          player.hp = Math.min(player.hp + 30, player.maxHp);
+        }
+        socket.emit('upgradeSuccess', { type: 'stat', key, level: player.stats[key], currency: player.currency, stats: player.stats, abilities: player.abilities });
+      } else if (type === 'ability') {
+        const def = C.ABILITIES[key];
+        if (!def) return;
+        const currentLevel = getAbilityLevel(player, key);
+        const cost = C.getAbilityCost(key, currentLevel);
+        if (player.currency < cost) return;
+        player.currency -= cost;
+        player.abilities[key] = currentLevel + 1;
+        socket.emit('upgradeSuccess', { type: 'ability', key, level: player.abilities[key], currency: player.currency, stats: player.stats, abilities: player.abilities });
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log(`Player disconnected: ${socket.id}`);
+      removePlayerFromRoom(socket.id);
+    });
+  });
+}
+
+module.exports = { registerHandlers };
