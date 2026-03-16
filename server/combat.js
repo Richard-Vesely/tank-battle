@@ -1,6 +1,6 @@
 const C = require('../shared/constants');
 const { rooms, playerToRoom, getIo } = require('./state');
-const { getPlayerMaxHp, getPlayerArmor, getAbilityLevel } = require('./player');
+const { getPlayerMaxHp, getPlayerArmor, getAbilityLevel, getCoinBoostMult } = require('./player');
 const { getPlayersInfo } = require('./rooms');
 
 function spawnTank(room, playerId) {
@@ -50,6 +50,7 @@ function killPlayer(room, victimId, killerId) {
         io.to(room.code).emit('vampireProc', { id: killerId, heal: healAmt, earnedCR });
       }
 
+      earnedCR = Math.round(earnedCR * getCoinBoostMult(killer));
       killer.currency += earnedCR;
       io.to(room.code).emit('currencyEarned', { id: killerId, amount: earnedCR, total: killer.currency });
     }

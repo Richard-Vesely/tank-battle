@@ -89,9 +89,26 @@ function getPlayerArmor(player) {
   return C.getStatValue('defense', 'armor', lvl);
 }
 
+function getCoinBoostMult(player) {
+  const lvl = getStatLevel(player, 'coinBoost');
+  if (lvl <= 0) return 1;
+  return 1 + lvl * 0.10;
+}
+
+function getRegenRate(player) {
+  const lvl = getStatLevel(player, 'regeneration');
+  return lvl * 0.5; // hp per second
+}
+
+function getCooldownReduction(player) {
+  const lvl = getStatLevel(player, 'fasterCooldown');
+  return lvl * 1000; // ms reduction
+}
+
 module.exports = {
   createPlayer,
   getStatLevel, getAbilityLevel, hasAbility,
   getPlayerDamage, getPlayerFireCooldown, getPlayerBulletSpeed,
   getPlayerSpeed, getPlayerRotation, getPlayerMaxHp, getPlayerArmor,
+  getCoinBoostMult, getRegenRate, getCooldownReduction,
 };

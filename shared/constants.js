@@ -85,10 +85,25 @@ const CONSTANTS = {
       pctPerLevel: { maxHp: 0.12, armor: 0.08 },
       // maxHp increases, armor (damage multiplier) decreases
     },
+    coinBoost: {
+      name: 'Coin Boost', baseCost: 150, costMult: 2,
+      // +10% coins from everything per level
+      pctPerLevel: { coinMult: 0.10 },
+    },
+    regeneration: {
+      name: 'Regen', baseCost: 75, costMult: 2,
+      // +0.5 hp/s per level
+      flat: { hpPerSec: 0.5 },
+    },
+    fasterCooldown: {
+      name: 'Fast CD', baseCost: 150, costMult: 2,
+      // -1s ability cooldown per level
+      flat: { cdReduction: 1000 },
+    },
   },
 
-  // Quick-buy key bindings (number keys 1-3)
-  QUICKBUY_STATS: ['firepower', 'mobility', 'defense'],
+  // Quick-buy key bindings (number keys 1-6)
+  QUICKBUY_STATS: ['firepower', 'mobility', 'defense', 'coinBoost', 'regeneration', 'fasterCooldown'],
 
   // ─── Abilities (formula-based, unlimited levels) ────────
   // cost(level) = baseCost * costMult^level
@@ -102,7 +117,7 @@ const CONSTANTS = {
       // damageMult increases, fireRateMult decreases (faster), cooldown uses flat reduction per level
       cooldownMode: 'flat', // special: subtract pctPerLevel.cooldown ms per level instead of %
     },
-    speedBoost: { name: 'Speed Boost',  key: 'W', type: 'duration', baseCost: 150, costMult: 2,
+    speedBoost: { name: 'Speed Boost',  key: 'T', type: 'duration', baseCost: 150, costMult: 2,
       duration: 5000,
       base: { speedMult: 1.4, cooldown: 18000 },
       pctPerLevel: { speedMult: 0.15, cooldown: 0.08 },

@@ -4,7 +4,7 @@ const { getIo } = require('./state');
 const { getPlayersInfo, getPlayerColorIndex } = require('./rooms');
 const {
   getPlayerSpeed, getPlayerRotation, getPlayerFireCooldown,
-  hasAbility, getAbilityLevel,
+  hasAbility, getAbilityLevel, getCoinBoostMult, getRegenRate, getCooldownReduction,
 } = require('./player');
 const { spawnTank, canRespawn } = require('./combat');
 const { fireBullet, updateBullets, collidesWithMap, collidesWithTanks } = require('./physics');
@@ -204,7 +204,7 @@ function updateGame(room, dt, now) {
           const def = C.ABILITIES[abilityKey];
           const lvl = getAbilityLevel(p, abilityKey);
           p.activeEffects[abilityKey] = { remaining: def.duration };
-          p.abilityCooldowns[abilityKey] = C.getAbilityValue(abilityKey, 'cooldown', lvl);
+          p.abilityCooldowns[abilityKey] = Math.max(1000, C.getAbilityValue(abilityKey, 'cooldown', lvl) - getCooldownReduction(p));
           io.to(room.code).emit('abilityUsed', { id, ability: abilityKey });
         }
       }
@@ -213,7 +213,7 @@ function updateGame(room, dt, now) {
         const lvl = getAbilityLevel(p, 'regenBurst');
         const healAmt = Math.round(C.getAbilityValue('regenBurst', 'healAmount', lvl));
         p.hp = Math.min(p.hp + healAmt, p.maxHp);
-        p.abilityCooldowns.regenBurst = C.getAbilityValue('regenBurst', 'cooldown', lvl);
+        p.abilityCooldowns.regenBurst = Math.max(1000, C.getAbilityValue('regenBurst', 'cooldown', lvl) - getCooldownReduction(p));
         io.to(room.code).emit('abilityUsed', { id, ability: 'regenBurst', x: p.x, y: p.y });
       }
 
@@ -221,7 +221,7 @@ function updateGame(room, dt, now) {
         const lvl = getAbilityLevel(p, 'mine');
         const mineDmg = Math.round(C.getAbilityValue('mine', 'damage', lvl));
         placeMine(room, id, mineDmg);
-        p.abilityCooldowns.mine = C.getAbilityValue('mine', 'cooldown', lvl);
+        p.abilityCooldowns.mine = Math.max(1000, C.getAbilityValue('mine', 'cooldown', lvl) - getCooldownReduction(p));
       }
     }
 
@@ -231,6 +231,12 @@ function updateGame(room, dt, now) {
         p.powerup = null;
         p.shieldActive = false;
       }
+    }
+
+    // Regeneration stat
+    const regenRate = getRegenRate(p);
+    if (regenRate > 0 && p.hp < p.maxHp) {
+      p.hp = Math.min(p.hp + regenRate * dt, p.maxHp);
     }
   }
 
@@ -268,8 +274,9 @@ function updateGame(room, dt, now) {
     for (const [pid, p] of room.players) {
       if (!p.alive) continue;
       if (C.withinDist(cr.x, cr.y, p.x, p.y, C.TANK_SIZE/2 + 10)) {
-        p.currency += cr.value;
-        io.to(room.code).emit('creditCollected', { id: pid, value: cr.value, total: p.currency });
+        const boostedValue = Math.round(cr.value * getCoinBoostMult(p));
+        p.currency += boostedValue;
+        io.to(room.code).emit('creditCollected', { id: pid, value: boostedValue, total: p.currency });
         room.creditPickups.splice(i, 1);
         break;
       }

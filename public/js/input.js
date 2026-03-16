@@ -9,7 +9,7 @@ const Input = (() => {
     window.addEventListener('keydown', (e) => {
       if (!keys[e.code]) justPressed[e.code] = true;
       keys[e.code] = true;
-      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','Tab'].includes(e.code)) {
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','Tab','KeyW','KeyS','KeyA','KeyD'].includes(e.code)) {
         e.preventDefault();
       }
     });
@@ -35,14 +35,14 @@ const Input = (() => {
   function getInput() {
     const shift = keys['ShiftLeft'] || keys['ShiftRight'] || false;
     return {
-      up: keys['ArrowUp'] || false,
-      down: keys['ArrowDown'] || false,
-      left: keys['ArrowLeft'] || false,
-      right: keys['ArrowRight'] || false,
+      up: keys['ArrowUp'] || keys['KeyW'] || false,
+      down: keys['ArrowDown'] || keys['KeyS'] || false,
+      left: keys['ArrowLeft'] || keys['KeyA'] || false,
+      right: keys['ArrowRight'] || keys['KeyD'] || false,
       fire: keys['Space'] || false,
       // Duration abilities (suppressed when Shift held — Shift+key = buy)
       berserk: !shift && (keys['KeyQ'] || false),
-      speedBoost: !shift && (keys['KeyW'] || false),
+      speedBoost: !shift && (keys['KeyT'] || false),
       vampire: !shift && (keys['KeyE'] || false),
       hide: !shift && (keys['KeyR'] || false),
       shield: !shift && (keys['KeyF'] || false),
