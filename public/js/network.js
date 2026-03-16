@@ -17,7 +17,7 @@ const Network = (() => {
       'minePlaced', 'mineExploded', 'zoneCaptured',
       'creditSpawned', 'creditCollected',
       // v3 events
-      'snipeImpact', 'vampireProc'
+      'vampireProc'
     ];
 
     events.forEach(event => {

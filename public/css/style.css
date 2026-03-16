@@ -1,3 +1,19 @@
+:root {
+  --color-primary: #e94560;
+  --color-primary-hover: #ff6b81;
+  --color-secondary: #0f3460;
+  --color-secondary-hover: #1a4a8a;
+  --color-bg: #1a1a2e;
+  --color-surface: #16213e;
+  --color-text: #e0e0e0;
+  --color-muted: #a0a0c0;
+  --color-gold: #FFD700;
+  --color-success: #4CAF50;
+  --color-danger: #c0392b;
+  --color-danger-hover: #e74c3c;
+  --color-cyan: #0ff;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -5,8 +21,8 @@
 }
 
 body {
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: var(--color-bg);
+  color: var(--color-text);
   font-family: 'Press Start 2P', monospace;
   overflow: hidden;
   height: 100vh;
@@ -37,8 +53,8 @@ body {
 
 .game-title {
   font-size: 48px;
-  color: #e94560;
-  text-shadow: 4px 4px 0 #0f3460, -2px -2px 0 #16213e;
+  color: var(--color-primary);
+  text-shadow: 4px 4px 0 var(--color-secondary), -2px -2px 0 var(--color-surface);
   letter-spacing: 4px;
   animation: titlePulse 2s ease-in-out infinite;
 }
@@ -50,14 +66,14 @@ body {
 
 .subtitle {
   font-size: 12px;
-  color: #a0a0c0;
+  color: var(--color-muted);
   margin-top: 12px;
   letter-spacing: 2px;
 }
 
 .menu-container {
-  background: #16213e;
-  border: 3px solid #0f3460;
+  background: var(--color-surface);
+  border: 3px solid var(--color-secondary);
   border-radius: 8px;
   padding: 24px;
   width: 440px;
@@ -73,7 +89,7 @@ body {
 label {
   display: block;
   font-size: 10px;
-  color: #a0a0c0;
+  color: var(--color-muted);
   margin-bottom: 6px;
   letter-spacing: 1px;
 }
@@ -81,10 +97,10 @@ label {
 input[type="text"] {
   width: 100%;
   padding: 10px;
-  background: #1a1a2e;
-  border: 2px solid #0f3460;
+  background: var(--color-bg);
+  border: 2px solid var(--color-secondary);
   border-radius: 4px;
-  color: #e0e0e0;
+  color: var(--color-text);
   font-family: 'Press Start 2P', monospace;
   font-size: 12px;
   outline: none;
@@ -92,7 +108,7 @@ input[type="text"] {
 }
 
 input[type="text"]:focus {
-  border-color: #e94560;
+  border-color: var(--color-primary);
 }
 
 .btn {
@@ -117,35 +133,35 @@ input[type="text"]:focus {
 }
 
 .btn-primary {
-  background: #e94560;
+  background: var(--color-primary);
   color: white;
 }
 
 .btn-primary:hover {
-  background: #ff6b81;
+  background: var(--color-primary-hover);
 }
 
 .btn-secondary {
-  background: #0f3460;
-  color: #e0e0e0;
+  background: var(--color-secondary);
+  color: var(--color-text);
 }
 
 .btn-secondary:hover {
-  background: #1a4a8a;
+  background: var(--color-secondary-hover);
 }
 
 .btn-danger {
-  background: #c0392b;
+  background: var(--color-danger);
   color: white;
 }
 
 .btn-danger:hover {
-  background: #e74c3c;
+  background: var(--color-danger-hover);
 }
 
 .btn-practice {
   background: #1a6b3c;
-  color: #e0e0e0;
+  color: var(--color-text);
   font-size: 9px;
   border: 2px solid #2ecc71;
 }
@@ -154,49 +170,23 @@ input[type="text"]:focus {
   background: #27ae60;
 }
 
-.mode-btn {
+.mode-btn, .penalty-btn, .mapsize-btn {
   width: 32%;
   font-size: 8px;
   padding: 10px 4px;
-  background: #1a1a2e;
-  color: #a0a0c0;
-  border: 2px solid #0f3460;
-}
-
-.mode-btn.selected {
-  background: #0f3460;
-  color: #e0e0e0;
-  border-color: #e94560;
+  background: var(--color-bg);
+  color: var(--color-muted);
+  border: 2px solid var(--color-secondary);
 }
 
 .penalty-btn {
   width: 48%;
-  font-size: 8px;
-  padding: 10px 4px;
-  background: #1a1a2e;
-  color: #a0a0c0;
-  border: 2px solid #0f3460;
 }
 
-.penalty-btn.selected {
-  background: #0f3460;
-  color: #e0e0e0;
-  border-color: #e94560;
-}
-
-.mapsize-btn {
-  width: 32%;
-  font-size: 8px;
-  padding: 10px 4px;
-  background: #1a1a2e;
-  color: #a0a0c0;
-  border: 2px solid #0f3460;
-}
-
-.mapsize-btn.selected {
-  background: #0f3460;
-  color: #e0e0e0;
-  border-color: #e94560;
+.mode-btn.selected, .penalty-btn.selected, .mapsize-btn.selected {
+  background: var(--color-secondary);
+  color: var(--color-text);
+  border-color: var(--color-primary);
 }
 
 .button-group {
@@ -232,7 +222,7 @@ input[type="text"]:focus {
 }
 
 .error-msg {
-  color: #e94560;
+  color: var(--color-primary);
   font-size: 10px;
   margin-top: 12px;
   min-height: 16px;
@@ -242,19 +232,19 @@ input[type="text"]:focus {
 /* ─── Waiting Room ───────────────────────────────────────── */
 #waiting-screen h2 {
   font-size: 20px;
-  color: #e94560;
+  color: var(--color-primary);
   margin-bottom: 8px;
 }
 
 .mode-display {
   font-size: 10px;
-  color: #a0a0c0;
+  color: var(--color-muted);
   margin-bottom: 20px;
 }
 
 .player-list {
-  background: #16213e;
-  border: 2px solid #0f3460;
+  background: var(--color-surface);
+  border: 2px solid var(--color-secondary);
   border-radius: 8px;
   padding: 16px;
   width: 360px;
@@ -267,7 +257,7 @@ input[type="text"]:focus {
   gap: 10px;
   padding: 8px;
   font-size: 11px;
-  border-bottom: 1px solid #0f3460;
+  border-bottom: 1px solid var(--color-secondary);
 }
 
 .player-entry:last-child {
@@ -287,7 +277,7 @@ input[type="text"]:focus {
 
 .player-ready {
   font-size: 9px;
-  color: #4CAF50;
+  color: var(--color-success);
 }
 
 .player-waiting {
@@ -364,19 +354,19 @@ input[type="text"]:focus {
 
 .hp-bar-fill {
   height: 100%;
-  background: #4CAF50;
+  background: var(--color-success);
   transition: width 0.2s;
 }
 
 #hud-currency {
   font-size: 11px;
-  color: #FFD700;
+  color: var(--color-gold);
   text-shadow: 1px 1px 0 #000;
 }
 
 #hud-powerup {
   font-size: 9px;
-  color: #FFD700;
+  color: var(--color-gold);
   display: none;
 }
 
@@ -391,7 +381,7 @@ input[type="text"]:focus {
   background: rgba(0,0,0,0.6);
   border: 1px solid #555;
   border-radius: 2px;
-  color: #0ff;
+  color: var(--color-cyan);
 }
 
 #hud-scores {
@@ -445,7 +435,7 @@ input[type="text"]:focus {
   left: 50%;
   transform: translate(-50%, -50%);
   font-size: 24px;
-  color: #e94560;
+  color: var(--color-primary);
   text-shadow: 2px 2px 0 #000;
   pointer-events: none;
   text-align: center;
@@ -472,7 +462,7 @@ input[type="text"]:focus {
   max-height: calc(100vh - 80px);
   overflow-y: auto;
   background: rgba(10, 10, 30, 0.92);
-  border: 2px solid #0f3460;
+  border: 2px solid var(--color-secondary);
   border-radius: 6px;
   display: none;
   z-index: 10;
@@ -486,26 +476,14 @@ input[type="text"]:focus {
 .shop-header {
   font-size: 10px;
   padding: 10px 12px;
-  color: #e94560;
+  color: var(--color-primary);
   display: flex;
   justify-content: space-between;
-  border-bottom: 1px solid #0f3460;
+  border-bottom: 1px solid var(--color-secondary);
 }
 
 .shop-currency {
-  color: #FFD700;
-}
-
-.shop-category {
-  padding: 6px 12px;
-  border-bottom: 1px solid #0f3460;
-}
-
-.shop-cat-title {
-  font-size: 8px;
-  color: #a0a0c0;
-  padding: 4px 0;
-  letter-spacing: 1px;
+  color: var(--color-gold);
 }
 
 .shop-item {
@@ -521,7 +499,7 @@ input[type="text"]:focus {
 }
 
 .shop-item.buyable {
-  color: #e0e0e0;
+  color: var(--color-text);
   cursor: pointer;
 }
 
@@ -530,7 +508,7 @@ input[type="text"]:focus {
 }
 
 .shop-item.maxed {
-  color: #4CAF50;
+  color: var(--color-success);
 }
 
 .shop-item-name {
@@ -540,20 +518,20 @@ input[type="text"]:focus {
 
 .shop-item-level {
   font-size: 8px;
-  color: #FFD700;
+  color: var(--color-gold);
   letter-spacing: 1px;
 }
 
 .shop-item-cost {
   font-size: 7px;
-  color: #a0a0c0;
+  color: var(--color-muted);
   min-width: 50px;
   text-align: right;
 }
 
 .shop-hotkey {
   font-size: 6px;
-  color: #0ff;
+  color: var(--color-cyan);
   background: rgba(0,255,255,0.1);
   padding: 1px 3px;
   border-radius: 2px;
@@ -569,7 +547,7 @@ input[type="text"]:focus {
 }
 
 .upgrade-shop::-webkit-scrollbar-thumb {
-  background: #0f3460;
+  background: var(--color-secondary);
   border-radius: 2px;
 }
 
@@ -581,14 +559,14 @@ input[type="text"]:focus {
 
 #gameover-screen h2 {
   font-size: 28px;
-  color: #FFD700;
+  color: var(--color-gold);
   margin-bottom: 24px;
   text-shadow: 2px 2px 0 #000;
 }
 
 #final-scores {
-  background: #16213e;
-  border: 2px solid #0f3460;
+  background: var(--color-surface);
+  border: 2px solid var(--color-secondary);
   border-radius: 8px;
   padding: 16px;
   width: 360px;
@@ -600,23 +578,10 @@ input[type="text"]:focus {
   justify-content: space-between;
   padding: 8px 4px;
   font-size: 11px;
-  border-bottom: 1px solid #0f3460;
+  border-bottom: 1px solid var(--color-secondary);
 }
 
 .final-score-entry:last-child {
-  border-bottom: none;
-}
-
-.score-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 4px;
-  font-size: 10px;
-  border-bottom: 1px solid #0f3460;
-}
-
-.score-row:last-child {
   border-bottom: none;
 }
 
