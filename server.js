@@ -10,7 +10,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ["https://ardoremy.cz", "https://www.ardoremy.cz", "http://localhost:8080", "http://localhost:5173"],
+    origin: ["https://ardoremy.cz", "https://www.ardoremy.cz", "http://localhost:8080", "http://localhost:5173", /\.lovable\.dev$/, /\.lovableproject\.com$/],
     methods: ["GET", "POST"]
   }
 });
