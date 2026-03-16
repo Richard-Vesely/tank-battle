@@ -1040,9 +1040,9 @@ io.on('connection', (socket) => {
     socket.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
   });
 
-  socket.on('startPractice', ({ name }) => {
+  socket.on('startPractice', ({ name, deathPenalty, mapSize }) => {
     removePlayerFromRoom(socket.id);
-    const room = createRoom(C.MODE_DOMINATION, C.DEATH_KEEP_UPGRADES, 'small');
+    const room = createRoom(C.MODE_DOMINATION, deathPenalty || C.DEATH_KEEP_UPGRADES, mapSize || 'small');
     const colorIndex = 0;
     const player = createPlayer(name || 'Player', colorIndex);
     room.players.set(socket.id, player);

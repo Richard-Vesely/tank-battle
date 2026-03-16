@@ -112,7 +112,7 @@ const Game = (() => {
     });
 
     document.getElementById('btn-practice').addEventListener('click', () => {
-      Network.emit('startPractice', { name: nameInput.value || 'Player' });
+      Network.emit('startPractice', { name: nameInput.value || 'Player', deathPenalty: selectedPenalty, mapSize: selectedMapSize });
     });
 
     document.getElementById('btn-create').addEventListener('click', () => {
