@@ -117,7 +117,7 @@ const CONSTANTS = {
       // damageMult increases, fireRateMult decreases (faster), cooldown uses flat reduction per level
       cooldownMode: 'flat', // special: subtract pctPerLevel.cooldown ms per level instead of %
     },
-    speedBoost: { name: 'Speed Boost',  key: 'T', type: 'duration', baseCost: 150, costMult: 2,
+    speedBoost: { name: 'Speed Boost',  key: 'W', type: 'duration', baseCost: 150, costMult: 2,
       duration: 5000,
       base: { speedMult: 1.4, cooldown: 18000 },
       pctPerLevel: { speedMult: 0.15, cooldown: 0.08 },
