@@ -69,6 +69,16 @@ function registerHandlers(io) {
       startPractice(room, socket.id);
     });
 
+    socket.on('changeColor', ({ colorIndex }) => {
+      const room = playerToRoom.get(socket.id);
+      if (!room || room.state !== 'waiting') return;
+      const player = room.players.get(socket.id);
+      if (!player) return;
+      if (typeof colorIndex !== 'number' || colorIndex < 0 || colorIndex >= C.TANK_COLORS.length) return;
+      player.colorIndex = colorIndex;
+      io.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
+    });
+
     socket.on('toggleReady', () => {
       const room = playerToRoom.get(socket.id);
       if (!room) return;

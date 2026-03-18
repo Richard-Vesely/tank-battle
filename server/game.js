@@ -92,7 +92,7 @@ function startGame(room) {
     room.domScores[id] = 0;
     const p = room.players.get(id);
     p.lives = C.FFA_LIVES;
-    p.currency = 0;
+    p.currency = 500;
     p.stats = {};
     p.abilities = {};
     p.abilityCooldowns = {};
