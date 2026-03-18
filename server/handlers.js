@@ -75,8 +75,15 @@ function registerHandlers(io) {
       const player = room.players.get(socket.id);
       if (!player) return;
       if (typeof colorIndex !== 'number' || colorIndex < 0 || colorIndex >= C.TANK_COLORS.length) return;
+      // Check if color is already taken by another player
+      for (const [id, p] of room.players) {
+        if (id !== socket.id && p.colorIndex === colorIndex) {
+          socket.emit('error', { message: 'Tuhle barvu už má někdo jiný' });
+          return;
+        }
+      }
       player.colorIndex = colorIndex;
-      io.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
+      io.to(room.code).emit('colorChanged', { id: socket.id, players: getPlayersInfo(room) });
     });
 
     socket.on('toggleReady', () => {
