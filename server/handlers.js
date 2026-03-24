@@ -9,9 +9,9 @@ function registerHandlers(io) {
   io.on('connection', (socket) => {
     console.log(`Player connected: ${socket.id}`);
 
-    socket.on('createRoom', ({ name, mode, deathPenalty, mapSize }) => {
+    socket.on('createRoom', ({ name, mode, deathPenalty, mapSize, vanilla }) => {
       removePlayerFromRoom(socket.id);
-      const room = createRoom(mode, deathPenalty, mapSize);
+      const room = createRoom(mode, deathPenalty, mapSize, vanilla);
       const colorIndex = getPlayerColorIndex(room);
       const player = createPlayer(name, colorIndex);
       room.players.set(socket.id, player);
@@ -19,7 +19,7 @@ function registerHandlers(io) {
       room.scores[socket.id] = 0;
       room.domScores[socket.id] = 0;
       socket.join(room.code);
-      socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: socket.id, mode: room.mode, deathPenalty: room.deathPenalty, mapSize: room.mapSize });
+      socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: socket.id, mode: room.mode, deathPenalty: room.deathPenalty, mapSize: room.mapSize, vanilla: room.vanilla });
     });
 
     socket.on('joinRoom', ({ name, code }) => {
@@ -36,7 +36,7 @@ function registerHandlers(io) {
       room.scores[socket.id] = 0;
       room.domScores[socket.id] = 0;
       socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize });
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla });
       socket.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
     });
 
@@ -51,13 +51,13 @@ function registerHandlers(io) {
       room.scores[socket.id] = 0;
       room.domScores[socket.id] = 0;
       socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize });
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla });
       socket.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
     });
 
-    socket.on('startPractice', ({ name, deathPenalty, mapSize }) => {
+    socket.on('startPractice', ({ name, deathPenalty, mapSize, vanilla }) => {
       removePlayerFromRoom(socket.id);
-      const room = createRoom(C.MODE_DOMINATION, deathPenalty || C.DEATH_KEEP_UPGRADES, mapSize || 'small');
+      const room = createRoom(C.MODE_DOMINATION, deathPenalty || C.DEATH_KEEP_UPGRADES, mapSize || 'small', vanilla);
       const colorIndex = 0;
       const player = createPlayer(name || 'Player', colorIndex);
       room.players.set(socket.id, player);
@@ -65,7 +65,7 @@ function registerHandlers(io) {
       room.scores[socket.id] = 0;
       room.domScores[socket.id] = 0;
       socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize });
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla });
       startPractice(room, socket.id);
     });
 
@@ -112,6 +112,7 @@ function registerHandlers(io) {
       if (!room) return;
       const player = room.players.get(socket.id);
       if (!player || room.state !== 'playing') return;
+      if (room.vanilla) return;
 
       if (type === 'stat') {
         const def = C.STATS[key];

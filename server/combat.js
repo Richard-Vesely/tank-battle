@@ -38,7 +38,7 @@ function killPlayer(room, victimId, killerId) {
   if (killerId && killerId !== victimId) {
     room.scores[killerId] = (room.scores[killerId] || 0) + 1;
     const killer = room.players.get(killerId);
-    if (killer) {
+    if (killer && !room.vanilla) {
       let earnedCR = C.KILL_CURRENCY;
 
       if (killer.activeEffects.vampire) {

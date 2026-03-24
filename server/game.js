@@ -92,7 +92,7 @@ function startGame(room) {
     room.domScores[id] = 0;
     const p = room.players.get(id);
     p.lives = C.FFA_LIVES;
-    p.currency = 500;
+    p.currency = room.vanilla ? 0 : 500;
     p.stats = {};
     p.abilities = {};
     p.abilityCooldowns = {};
@@ -113,6 +113,7 @@ function startGame(room) {
     mode: room.mode,
     deathPenalty: room.deathPenalty,
     practice: room.practice || false,
+    vanilla: room.vanilla || false,
     captureZones: room.captureZones.map(z => ({ x: z.x, y: z.y, label: z.label })),
     players: startPlayers
   });
@@ -263,22 +264,24 @@ function updateGame(room, dt, now) {
     }
   }
 
-  const creditMax = C.getCreditMaxOnMap(room.players.size);
-  if (now - room.lastCreditSpawn >= C.CREDIT_SPAWN_INTERVAL && room.creditPickups.length < creditMax) {
-    spawnCreditPickup(room);
-    room.lastCreditSpawn = now;
-  }
+  if (!room.vanilla) {
+    const creditMax = C.getCreditMaxOnMap(room.players.size);
+    if (now - room.lastCreditSpawn >= C.CREDIT_SPAWN_INTERVAL && room.creditPickups.length < creditMax) {
+      spawnCreditPickup(room);
+      room.lastCreditSpawn = now;
+    }
 
-  for (let i = room.creditPickups.length - 1; i >= 0; i--) {
-    const cr = room.creditPickups[i];
-    for (const [pid, p] of room.players) {
-      if (!p.alive) continue;
-      if (C.withinDist(cr.x, cr.y, p.x, p.y, C.TANK_SIZE/2 + 10)) {
-        const boostedValue = Math.round(cr.value * getCoinBoostMult(p));
-        p.currency += boostedValue;
-        io.to(room.code).emit('creditCollected', { id: pid, value: boostedValue, total: p.currency });
-        room.creditPickups.splice(i, 1);
-        break;
+    for (let i = room.creditPickups.length - 1; i >= 0; i--) {
+      const cr = room.creditPickups[i];
+      for (const [pid, p] of room.players) {
+        if (!p.alive) continue;
+        if (C.withinDist(cr.x, cr.y, p.x, p.y, C.TANK_SIZE/2 + 10)) {
+          const boostedValue = Math.round(cr.value * getCoinBoostMult(p));
+          p.currency += boostedValue;
+          io.to(room.code).emit('creditCollected', { id: pid, value: boostedValue, total: p.currency });
+          room.creditPickups.splice(i, 1);
+          break;
+        }
       }
     }
   }
@@ -290,7 +293,7 @@ function updateGame(room, dt, now) {
 
 function startPractice(room, socketId) {
   const player = room.players.get(socketId);
-  if (player) player.currency = 500;
+  if (player) player.currency = room.vanilla ? 0 : 500;
 
   const botNames = ['Bot Alpha', 'Bot Bravo', 'Bot Charlie'];
   for (let i = 0; i < 3; i++) {
@@ -305,7 +308,7 @@ function startPractice(room, socketId) {
   room.practice = true;
   startGame(room);
 
-  if (player) player.currency = 500;
+  if (player) player.currency = room.vanilla ? 0 : 500;
   for (const [id, p] of room.players) {
     if (p.isBot) {
       p.stats = {};
