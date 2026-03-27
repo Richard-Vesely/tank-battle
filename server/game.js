@@ -167,14 +167,12 @@ function updateGame(room, dt, now) {
     const rotSpeed = getPlayerRotation(p);
 
     if (p.input) {
-      if (p.input.left) p.angle -= rotSpeed * dt;
-      if (p.input.right) p.angle += rotSpeed * dt;
-
-      if (p.input.up || p.input.down) {
-        const dir = p.input.up ? 1 : -1;
+      // Analog joystick input (mobile): angle + speed directly control the tank
+      if (p.input.moveAngle !== undefined && p.input.moveSpeed > 0) {
+        p.angle = p.input.moveAngle;
         const rad = C.degToRad(p.angle);
-        const nx = p.x + Math.sin(rad) * speed * dt * dir;
-        const ny = p.y - Math.cos(rad) * speed * dt * dir;
+        const nx = p.x + Math.sin(rad) * speed * p.input.moveSpeed * dt;
+        const ny = p.y - Math.cos(rad) * speed * p.input.moveSpeed * dt;
 
         if (!collidesWithMap(room, p, nx, ny, C.TANK_SIZE / 2) &&
             !collidesWithTanks(room, id, nx, ny)) {
@@ -187,6 +185,31 @@ function updateGame(room, dt, now) {
           } else if (!collidesWithMap(room, p, p.x, ny, C.TANK_SIZE / 2) &&
                      !collidesWithTanks(room, id, p.x, ny)) {
             p.y = ny;
+          }
+        }
+      } else {
+        // Boolean input (desktop keyboard): rotate + forward/backward
+        if (p.input.left) p.angle -= rotSpeed * dt;
+        if (p.input.right) p.angle += rotSpeed * dt;
+
+        if (p.input.up || p.input.down) {
+          const dir = p.input.up ? 1 : -1;
+          const rad = C.degToRad(p.angle);
+          const nx = p.x + Math.sin(rad) * speed * dt * dir;
+          const ny = p.y - Math.cos(rad) * speed * dt * dir;
+
+          if (!collidesWithMap(room, p, nx, ny, C.TANK_SIZE / 2) &&
+              !collidesWithTanks(room, id, nx, ny)) {
+            p.x = nx;
+            p.y = ny;
+          } else {
+            if (!collidesWithMap(room, p, nx, p.y, C.TANK_SIZE / 2) &&
+                !collidesWithTanks(room, id, nx, p.y)) {
+              p.x = nx;
+            } else if (!collidesWithMap(room, p, p.x, ny, C.TANK_SIZE / 2) &&
+                       !collidesWithTanks(room, id, p.x, ny)) {
+              p.y = ny;
+            }
           }
         }
       }
