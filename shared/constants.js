@@ -174,6 +174,7 @@ const CONSTANTS = {
   // Death penalty modes
   DEATH_KEEP_UPGRADES: 'keep',
   DEATH_LOSE_ALL: 'lose',
+  DEATH_RESPAWN_CURRENCY: 500,
 };
 
 // ─── Shared Helper Functions ─────────────────────────────────

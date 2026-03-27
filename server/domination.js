@@ -38,8 +38,9 @@ function updateCaptureZones(room, dt) {
     }
   }
 
+  const winScore = room.dominationTarget || C.DOMINATION_WIN_SCORE;
   for (const [id, score] of Object.entries(room.domScores)) {
-    if (score >= C.DOMINATION_WIN_SCORE) {
+    if (score >= winScore) {
       endGame(room, id);
       return;
     }

@@ -9,9 +9,9 @@ function registerHandlers(io) {
   io.on('connection', (socket) => {
     console.log(`Player connected: ${socket.id}`);
 
-    socket.on('createRoom', ({ name, mode, deathPenalty, mapSize, vanilla }) => {
+    socket.on('createRoom', ({ name, mode, deathPenalty, mapSize, vanilla, dominationTarget }) => {
       removePlayerFromRoom(socket.id);
-      const room = createRoom(mode, deathPenalty, mapSize, vanilla);
+      const room = createRoom(mode, deathPenalty, mapSize, vanilla, dominationTarget);
       const colorIndex = getPlayerColorIndex(room);
       const player = createPlayer(name, colorIndex);
       room.players.set(socket.id, player);
@@ -19,7 +19,7 @@ function registerHandlers(io) {
       room.scores[socket.id] = 0;
       room.domScores[socket.id] = 0;
       socket.join(room.code);
-      socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: socket.id, mode: room.mode, deathPenalty: room.deathPenalty, mapSize: room.mapSize, vanilla: room.vanilla });
+      socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: socket.id, mode: room.mode, deathPenalty: room.deathPenalty, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
     });
 
     socket.on('joinRoom', ({ name, code }) => {
@@ -36,7 +36,7 @@ function registerHandlers(io) {
       room.scores[socket.id] = 0;
       room.domScores[socket.id] = 0;
       socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla });
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
       socket.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
     });
 
@@ -51,13 +51,13 @@ function registerHandlers(io) {
       room.scores[socket.id] = 0;
       room.domScores[socket.id] = 0;
       socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla });
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
       socket.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
     });
 
-    socket.on('startPractice', ({ name, deathPenalty, mapSize, vanilla }) => {
+    socket.on('startPractice', ({ name, deathPenalty, mapSize, vanilla, dominationTarget }) => {
       removePlayerFromRoom(socket.id);
-      const room = createRoom(C.MODE_DOMINATION, deathPenalty || C.DEATH_KEEP_UPGRADES, mapSize || 'small', vanilla);
+      const room = createRoom(C.MODE_DOMINATION, deathPenalty || C.DEATH_KEEP_UPGRADES, mapSize || 'small', vanilla, dominationTarget);
       const colorIndex = 0;
       const player = createPlayer(name || 'Player', colorIndex);
       room.players.set(socket.id, player);
@@ -65,7 +65,7 @@ function registerHandlers(io) {
       room.scores[socket.id] = 0;
       room.domScores[socket.id] = 0;
       socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla });
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
       startPractice(room, socket.id);
     });
 
@@ -84,6 +84,34 @@ function registerHandlers(io) {
       }
       player.colorIndex = colorIndex;
       io.to(room.code).emit('colorChanged', { id: socket.id, players: getPlayersInfo(room) });
+    });
+
+    socket.on('updateRoomSettings', ({ mode, deathPenalty, mapSize, vanilla, dominationTarget }) => {
+      const room = playerToRoom.get(socket.id);
+      if (!room || room.state !== 'waiting') return;
+
+      if (mode && [C.MODE_FFA, C.MODE_ROUNDS, C.MODE_DOMINATION].includes(mode)) room.mode = mode;
+      if (deathPenalty && [C.DEATH_KEEP_UPGRADES, C.DEATH_LOSE_ALL].includes(deathPenalty)) room.deathPenalty = deathPenalty;
+      if (mapSize && C.MAP_SIZES[mapSize]) {
+        room.mapSize = mapSize;
+        room.mapWidth = C.MAP_SIZES[mapSize].width;
+        room.mapHeight = C.MAP_SIZES[mapSize].height;
+        room.spawnPoints = C.generateSpawnPoints(room.mapWidth, room.mapHeight, C.MAX_PLAYERS);
+      }
+      if (typeof vanilla === 'boolean') room.vanilla = vanilla;
+      if (typeof dominationTarget === 'number' && dominationTarget > 0) room.dominationTarget = dominationTarget;
+
+      // Reset ready status when settings change
+      for (const [, p] of room.players) p.ready = false;
+
+      io.to(room.code).emit('roomSettingsUpdated', {
+        mode: room.mode,
+        deathPenalty: room.deathPenalty,
+        mapSize: room.mapSize,
+        vanilla: room.vanilla,
+        dominationTarget: room.dominationTarget,
+        players: getPlayersInfo(room),
+      });
     });
 
     socket.on('toggleReady', () => {

@@ -60,7 +60,7 @@ function killPlayer(room, victimId, killerId) {
     victim.stats = {};
     victim.abilities = {};
     victim.abilityCooldowns = {};
-    victim.currency = 0;
+    victim.currency = room.vanilla ? 0 : C.DEATH_RESPAWN_CURRENCY;
   }
 
   if (room.mode === C.MODE_FFA) victim.lives--;
@@ -111,7 +111,14 @@ function endGame(room, winnerId) {
       room.powerups = [];
       room.mines = [];
       for (const [id, p] of room.players) p.ready = false;
-      io.to(room.code).emit('returnToLobby', { players: getPlayersInfo(room) });
+      io.to(room.code).emit('returnToLobby', {
+        players: getPlayersInfo(room),
+        mode: room.mode,
+        deathPenalty: room.deathPenalty,
+        mapSize: room.mapSize,
+        vanilla: room.vanilla,
+        dominationTarget: room.dominationTarget,
+      });
     }
   }, 5000);
 }

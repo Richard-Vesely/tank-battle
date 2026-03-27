@@ -114,6 +114,7 @@ function startGame(room) {
     deathPenalty: room.deathPenalty,
     practice: room.practice || false,
     vanilla: room.vanilla || false,
+    dominationTarget: room.dominationTarget || C.DOMINATION_WIN_SCORE,
     captureZones: room.captureZones.map(z => ({ x: z.x, y: z.y, label: z.label })),
     players: startPlayers
   });

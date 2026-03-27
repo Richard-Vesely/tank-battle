@@ -11,7 +11,7 @@ function generateRoomCode() {
   return code;
 }
 
-function createRoom(mode, deathPenalty, mapSize, vanilla) {
+function createRoom(mode, deathPenalty, mapSize, vanilla, dominationTarget) {
   const code = generateRoomCode();
   const seed = Date.now();
   const mapDef = C.MAP_SIZES[mapSize] || C.MAP_SIZES.small;
@@ -21,6 +21,7 @@ function createRoom(mode, deathPenalty, mapSize, vanilla) {
     deathPenalty: deathPenalty || C.DEATH_KEEP_UPGRADES,
     mapSize: mapSize || 'small',
     vanilla: !!vanilla,
+    dominationTarget: (typeof dominationTarget === 'number' && dominationTarget > 0) ? dominationTarget : C.DOMINATION_WIN_SCORE,
     mapWidth: mapDef.width,
     mapHeight: mapDef.height,
     state: 'waiting',
