@@ -33,8 +33,12 @@ function updateCaptureZones(room, dt) {
       }
     }
 
+    // Only award points if no enemy is standing in the zone
     if (zone.owner && room.domScores[zone.owner] !== undefined) {
-      room.domScores[zone.owner] += C.DOMINATION_POINTS_PER_SEC * dt;
+      const enemyPresent = playersInZone.some(id => id !== zone.owner);
+      if (!enemyPresent) {
+        room.domScores[zone.owner] += C.DOMINATION_POINTS_PER_SEC * dt;
+      }
     }
   }
 
