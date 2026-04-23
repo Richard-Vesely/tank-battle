@@ -103,25 +103,38 @@ function registerHandlers(io) {
     });
 
     socket.on('rejoinRoom', ({ roomCode, token }) => {
-      if (!roomCode || !token) return socket.emit('sessionInvalid');
+      console.log(`[rejoinRoom] socket=${socket.id} roomCode=${roomCode} token=${token ? token.slice(0, 8) + '...' : '(none)'}`);
+      if (!roomCode || !token) { console.log('[rejoinRoom] missing args'); return socket.emit('sessionInvalid'); }
       const playerId = tokenToPlayerId.get(token);
-      if (!playerId) return socket.emit('sessionInvalid');
+      if (!playerId) { console.log('[rejoinRoom] unknown token'); return socket.emit('sessionInvalid'); }
       const room = playerToRoom.get(playerId);
-      if (!room || room.code !== roomCode.toUpperCase()) return socket.emit('sessionInvalid');
+      if (!room || room.code !== roomCode.toUpperCase()) { console.log('[rejoinRoom] no room for this token'); return socket.emit('sessionInvalid'); }
       const player = room.players.get(playerId);
-      if (!player || player.token !== token || !player.disconnected) return socket.emit('sessionInvalid');
+      if (!player || player.token !== token) { console.log('[rejoinRoom] player/token mismatch'); return socket.emit('sessionInvalid'); }
 
-      // Clear grace timer
-      if (player.graceTimer) {
-        clearTimeout(player.graceTimer);
-        player.graceTimer = null;
+      // Kick whichever socket is currently bound (if any) so we take over cleanly.
+      // This also handles the race where the tab was just closed but the server
+      // hasn't processed the disconnect yet.
+      const prevSocketId = playerIdToSocket.get(playerId);
+      if (prevSocketId && prevSocketId !== socket.id) {
+        const prevSocket = io.sockets.sockets.get(prevSocketId);
+        if (prevSocket) {
+          // Don't let the prev socket's disconnect logic run its grace path,
+          // because we're immediately replacing it.
+          socketToPlayerId.delete(prevSocketId);
+          prevSocket.disconnect(true);
+        }
       }
+
+      // Clear grace timer (if one exists)
+      if (player.graceTimer) { clearTimeout(player.graceTimer); player.graceTimer = null; }
       player.disconnected = false;
       player.disconnectedAt = 0;
 
       // Rebind new socket to the existing permanent playerId
       bindSocket(socket, playerId);
       socket.join(room.code);
+      console.log(`[rejoinRoom] OK playerId=${playerId} state=${room.state}`);
 
       // Deliver appropriate state to the rejoining client
       if (room.state === 'playing') {
@@ -283,10 +296,15 @@ function registerHandlers(io) {
       socketToPlayerId.delete(socket.id);
       if (!playerId) return;
 
-      // Only release the playerId->socket binding if this was the live socket for that playerId
-      if (playerIdToSocket.get(playerId) === socket.id) {
-        playerIdToSocket.delete(playerId);
+      // If another socket has already taken over this player (via rejoinRoom that
+      // arrived BEFORE this disconnect event), silently drop — the player is already
+      // live on the new socket.
+      const currentBoundSocket = playerIdToSocket.get(playerId);
+      if (currentBoundSocket && currentBoundSocket !== socket.id) {
+        console.log(`[disconnect] playerId=${playerId} already rebound to ${currentBoundSocket} — no-op`);
+        return;
       }
+      playerIdToSocket.delete(playerId);
 
       const room = playerToRoom.get(playerId);
       if (!room) return;
