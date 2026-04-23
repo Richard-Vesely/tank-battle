@@ -1,6 +1,6 @@
 const C = require('../shared/constants');
 const { generateMap } = require('../shared/map-generator');
-const { getIo } = require('./state');
+const { getIo, playerIdToSocket } = require('./state');
 const { getPlayersInfo, getPlayerColorIndex } = require('./rooms');
 const {
   getPlayerSpeed, getPlayerRotation, getPlayerFireCooldown,
@@ -29,6 +29,7 @@ function serializePlayer(id, p) {
     abilities: p.abilities,
     abilityCooldowns: p.abilityCooldowns,
     activeEffects: effectKeys,
+    disconnected: !!p.disconnected,
   };
 }
 
@@ -54,7 +55,9 @@ function broadcastState(room) {
   const io = getIo();
   const state = getGameState(room);
   for (const [viewerId] of room.players) {
-    const socket = io.sockets.sockets.get(viewerId);
+    const socketId = playerIdToSocket.get(viewerId);
+    if (!socketId) continue;
+    const socket = io.sockets.sockets.get(socketId);
     if (socket) {
       state.myId = viewerId;
       socket.emit('gameState', state);
@@ -140,7 +143,7 @@ function updateGame(room, dt, now) {
 
   for (const [id, p] of room.players) {
     if (!p.alive) {
-      if (p.respawnTimer > 0) {
+      if (p.respawnTimer > 0 && !p.disconnected) {
         p.respawnTimer -= dt * 1000;
         if (p.respawnTimer <= 0 && canRespawn(room, id)) {
           spawnTank(room, id);
@@ -148,6 +151,9 @@ function updateGame(room, dt, now) {
       }
       continue;
     }
+
+    // Disconnected-but-alive: tank is frozen and invulnerable; skip all updates
+    if (p.disconnected) continue;
 
     for (const key of Object.keys(p.activeEffects)) {
       p.activeEffects[key].remaining -= dt * 1000;
@@ -279,6 +285,7 @@ function updateGame(room, dt, now) {
     const pu = room.powerups[i];
     for (const [pid, p] of room.players) {
       if (!p.alive) continue;
+      if (p.disconnected) continue;
       if (C.withinDist(pu.x, pu.y, p.x, p.y, C.TANK_SIZE/2 + C.POWERUP_SIZE/2)) {
         applyPowerup(p, pu.type);
         room.powerups.splice(i, 1);
@@ -299,6 +306,7 @@ function updateGame(room, dt, now) {
       const cr = room.creditPickups[i];
       for (const [pid, p] of room.players) {
         if (!p.alive) continue;
+        if (p.disconnected) continue;
         if (C.withinDist(cr.x, cr.y, p.x, p.y, C.TANK_SIZE/2 + 10)) {
           const boostedValue = Math.round(cr.value * getCoinBoostMult(p));
           p.currency += boostedValue;
@@ -343,4 +351,4 @@ function startPractice(room, socketId) {
   }
 }
 
-module.exports = { startGame, updateGame, broadcastState, startPractice };
+module.exports = { startGame, updateGame, broadcastState, startPractice, serializePlayer, getGameState };

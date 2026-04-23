@@ -8,6 +8,7 @@ function updateCaptureZones(room, dt) {
     const playersInZone = [];
     for (const [id, p] of room.players) {
       if (!p.alive) continue;
+      if (p.disconnected) continue;
       if (C.distSq(p.x / C.TILE_SIZE, p.y / C.TILE_SIZE, zone.x, zone.y) <= C.CAPTURE_ZONE_RADIUS * C.CAPTURE_ZONE_RADIUS) {
         playersInZone.push(id);
       }

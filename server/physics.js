@@ -68,6 +68,7 @@ function updateBullets(room, dt) {
     for (const [pid, p] of room.players) {
       if (pid === b.owner && b.ricochets === 0) continue;
       if (!p.alive) continue;
+      if (p.disconnected) continue;
 
       if (C.withinDist(b.x, b.y, p.x, p.y, C.TANK_SIZE / 2)) {
         if (p.activeEffects && p.activeEffects.shield) {

@@ -1,93 +1,200 @@
+const crypto = require('crypto');
 const C = require('../shared/constants');
-const { rooms, playerToRoom } = require('./state');
+const { rooms, playerToRoom, socketToPlayerId, playerIdToSocket, tokenToPlayerId } = require('./state');
 const { createRoom, findQuickPlayRoom, getPlayersInfo, getPlayerColorIndex } = require('./rooms');
 const { createPlayer, getStatLevel, getAbilityLevel, getPlayerMaxHp } = require('./player');
 const { removePlayerFromRoom } = require('./combat');
-const { startGame, startPractice } = require('./game');
+const { startGame, startPractice, serializePlayer } = require('./game');
+
+const GRACE_PERIOD_MS = 60_000;
+
+function getPlayerId(socket) {
+  return socketToPlayerId.get(socket.id);
+}
+
+function bindSocket(socket, playerId) {
+  socketToPlayerId.set(socket.id, playerId);
+  playerIdToSocket.set(playerId, socket.id);
+}
+
+function issueToken(playerId) {
+  const token = crypto.randomUUID();
+  tokenToPlayerId.set(token, playerId);
+  return token;
+}
 
 function registerHandlers(io) {
   io.on('connection', (socket) => {
     console.log(`Player connected: ${socket.id}`);
 
     socket.on('createRoom', ({ name, mode, deathPenalty, mapSize, vanilla, dominationTarget }) => {
-      removePlayerFromRoom(socket.id);
+      removePlayerFromRoom(getPlayerId(socket));
       const room = createRoom(mode, deathPenalty, mapSize, vanilla, dominationTarget);
       const colorIndex = getPlayerColorIndex(room);
       const player = createPlayer(name, colorIndex);
-      room.players.set(socket.id, player);
-      playerToRoom.set(socket.id, room);
-      room.scores[socket.id] = 0;
-      room.domScores[socket.id] = 0;
+      const playerId = socket.id;
+      const token = issueToken(playerId);
+      player.token = token;
+      room.players.set(playerId, player);
+      playerToRoom.set(playerId, room);
+      bindSocket(socket, playerId);
+      room.scores[playerId] = 0;
+      room.domScores[playerId] = 0;
       socket.join(room.code);
-      socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: socket.id, mode: room.mode, deathPenalty: room.deathPenalty, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
+      socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: playerId, token, mode: room.mode, deathPenalty: room.deathPenalty, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
     });
 
     socket.on('joinRoom', ({ name, code }) => {
-      const room = rooms.get(code.toUpperCase());
+      const room = rooms.get((code || '').toUpperCase());
       if (!room) return socket.emit('error', { message: 'Room not found' });
       if (room.state !== 'waiting') return socket.emit('error', { message: 'Game in progress' });
       if (room.players.size >= C.MAX_PLAYERS) return socket.emit('error', { message: 'Room full' });
 
-      removePlayerFromRoom(socket.id);
+      removePlayerFromRoom(getPlayerId(socket));
       const colorIndex = getPlayerColorIndex(room);
       const player = createPlayer(name, colorIndex);
-      room.players.set(socket.id, player);
-      playerToRoom.set(socket.id, room);
-      room.scores[socket.id] = 0;
-      room.domScores[socket.id] = 0;
+      const playerId = socket.id;
+      const token = issueToken(playerId);
+      player.token = token;
+      room.players.set(playerId, player);
+      playerToRoom.set(playerId, room);
+      bindSocket(socket, playerId);
+      room.scores[playerId] = 0;
+      room.domScores[playerId] = 0;
       socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
-      socket.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: playerId, token, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
+      socket.to(room.code).emit('playerJoined', { id: playerId, players: getPlayersInfo(room) });
     });
 
     socket.on('quickPlay', ({ name }) => {
       let room = findQuickPlayRoom();
       if (!room) room = createRoom(C.MODE_DOMINATION, C.DEATH_KEEP_UPGRADES, 'small');
-      removePlayerFromRoom(socket.id);
+      removePlayerFromRoom(getPlayerId(socket));
       const colorIndex = getPlayerColorIndex(room);
       const player = createPlayer(name, colorIndex);
-      room.players.set(socket.id, player);
-      playerToRoom.set(socket.id, room);
-      room.scores[socket.id] = 0;
-      room.domScores[socket.id] = 0;
+      const playerId = socket.id;
+      const token = issueToken(playerId);
+      player.token = token;
+      room.players.set(playerId, player);
+      playerToRoom.set(playerId, room);
+      bindSocket(socket, playerId);
+      room.scores[playerId] = 0;
+      room.domScores[playerId] = 0;
       socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
-      socket.to(room.code).emit('playerJoined', { id: socket.id, players: getPlayersInfo(room) });
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: playerId, token, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
+      socket.to(room.code).emit('playerJoined', { id: playerId, players: getPlayersInfo(room) });
     });
 
     socket.on('startPractice', ({ name, deathPenalty, mapSize, vanilla, dominationTarget }) => {
-      removePlayerFromRoom(socket.id);
+      removePlayerFromRoom(getPlayerId(socket));
       const room = createRoom(C.MODE_DOMINATION, deathPenalty || C.DEATH_KEEP_UPGRADES, mapSize || 'small', vanilla, dominationTarget);
       const colorIndex = 0;
       const player = createPlayer(name || 'Player', colorIndex);
-      room.players.set(socket.id, player);
-      playerToRoom.set(socket.id, room);
-      room.scores[socket.id] = 0;
-      room.domScores[socket.id] = 0;
+      const playerId = socket.id;
+      // Practice doesn't support rejoin — no token issued
+      room.players.set(playerId, player);
+      playerToRoom.set(playerId, room);
+      bindSocket(socket, playerId);
+      room.scores[playerId] = 0;
+      room.domScores[playerId] = 0;
       socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: socket.id, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
-      startPractice(room, socket.id);
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: playerId, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
+      startPractice(room, playerId);
+    });
+
+    socket.on('rejoinRoom', ({ roomCode, token }) => {
+      if (!roomCode || !token) return socket.emit('sessionInvalid');
+      const playerId = tokenToPlayerId.get(token);
+      if (!playerId) return socket.emit('sessionInvalid');
+      const room = playerToRoom.get(playerId);
+      if (!room || room.code !== roomCode.toUpperCase()) return socket.emit('sessionInvalid');
+      const player = room.players.get(playerId);
+      if (!player || player.token !== token || !player.disconnected) return socket.emit('sessionInvalid');
+
+      // Clear grace timer
+      if (player.graceTimer) {
+        clearTimeout(player.graceTimer);
+        player.graceTimer = null;
+      }
+      player.disconnected = false;
+      player.disconnectedAt = 0;
+
+      // Rebind new socket to the existing permanent playerId
+      bindSocket(socket, playerId);
+      socket.join(room.code);
+
+      // Deliver appropriate state to the rejoining client
+      if (room.state === 'playing') {
+        // rejoinSuccess first so the client sets myId before gameStart renders
+        socket.emit('rejoinSuccess', { you: playerId, code: room.code });
+        const players = [];
+        for (const [id, p] of room.players) players.push(serializePlayer(id, p));
+        socket.emit('gameStart', {
+          map: room.map,
+          mapSeed: room.mapSeed,
+          mapWidth: room.mapWidth,
+          mapHeight: room.mapHeight,
+          mode: room.mode,
+          deathPenalty: room.deathPenalty,
+          practice: room.practice || false,
+          vanilla: room.vanilla || false,
+          dominationTarget: room.dominationTarget || C.DOMINATION_WIN_SCORE,
+          captureZones: room.captureZones.map(z => ({ x: z.x, y: z.y, label: z.label })),
+          players,
+        });
+      } else {
+        // 'waiting' or 'gameOver' — land in the waiting screen
+        socket.emit('roomJoined', {
+          code: room.code,
+          players: getPlayersInfo(room),
+          mode: room.mode,
+          deathPenalty: room.deathPenalty,
+          you: playerId,
+          token,
+          mapSize: room.mapSize,
+          vanilla: room.vanilla,
+          dominationTarget: room.dominationTarget,
+        });
+      }
+
+      // Tell the rest of the room
+      socket.to(room.code).emit('playerReconnected', { id: playerId, players: getPlayersInfo(room) });
+    });
+
+    socket.on('leaveRoom', () => {
+      const playerId = getPlayerId(socket);
+      if (!playerId) return;
+      const room = playerToRoom.get(playerId);
+      if (room) {
+        const player = room.players.get(playerId);
+        if (player && player.token) tokenToPlayerId.delete(player.token);
+        if (player && player.graceTimer) { clearTimeout(player.graceTimer); player.graceTimer = null; }
+      }
+      removePlayerFromRoom(playerId);
+      socketToPlayerId.delete(socket.id);
     });
 
     socket.on('changeColor', ({ colorIndex }) => {
-      const room = playerToRoom.get(socket.id);
+      const playerId = getPlayerId(socket); if (!playerId) return;
+      const room = playerToRoom.get(playerId);
       if (!room || room.state !== 'waiting') return;
-      const player = room.players.get(socket.id);
+      const player = room.players.get(playerId);
       if (!player) return;
       if (typeof colorIndex !== 'number' || colorIndex < 0 || colorIndex >= C.TANK_COLORS.length) return;
       // Check if color is already taken by another player
       for (const [id, p] of room.players) {
-        if (id !== socket.id && p.colorIndex === colorIndex) {
+        if (id !== playerId && p.colorIndex === colorIndex) {
           socket.emit('error', { message: 'Tuhle barvu už má někdo jiný' });
           return;
         }
       }
       player.colorIndex = colorIndex;
-      io.to(room.code).emit('colorChanged', { id: socket.id, players: getPlayersInfo(room) });
+      io.to(room.code).emit('colorChanged', { id: playerId, players: getPlayersInfo(room) });
     });
 
     socket.on('updateRoomSettings', ({ mode, deathPenalty, mapSize, vanilla, dominationTarget }) => {
-      const room = playerToRoom.get(socket.id);
+      const playerId = getPlayerId(socket); if (!playerId) return;
+      const room = playerToRoom.get(playerId);
       if (!room || room.state !== 'waiting') return;
 
       if (mode && [C.MODE_FFA, C.MODE_ROUNDS, C.MODE_DOMINATION].includes(mode)) room.mode = mode;
@@ -115,12 +222,13 @@ function registerHandlers(io) {
     });
 
     socket.on('toggleReady', () => {
-      const room = playerToRoom.get(socket.id);
+      const playerId = getPlayerId(socket); if (!playerId) return;
+      const room = playerToRoom.get(playerId);
       if (!room) return;
-      const player = room.players.get(socket.id);
+      const player = room.players.get(playerId);
       if (!player) return;
       player.ready = !player.ready;
-      io.to(room.code).emit('playerReady', { id: socket.id, ready: player.ready, players: getPlayersInfo(room) });
+      io.to(room.code).emit('playerReady', { id: playerId, ready: player.ready, players: getPlayersInfo(room) });
       if (room.players.size >= C.MIN_PLAYERS) {
         let allReady = true;
         for (const [, p] of room.players) { if (!p.ready) { allReady = false; break; } }
@@ -129,16 +237,18 @@ function registerHandlers(io) {
     });
 
     socket.on('input', (input) => {
-      const room = playerToRoom.get(socket.id);
+      const playerId = getPlayerId(socket); if (!playerId) return;
+      const room = playerToRoom.get(playerId);
       if (!room) return;
-      const player = room.players.get(socket.id);
-      if (player) player.input = input;
+      const player = room.players.get(playerId);
+      if (player && !player.disconnected) player.input = input;
     });
 
     socket.on('purchase', ({ type, key }) => {
-      const room = playerToRoom.get(socket.id);
+      const playerId = getPlayerId(socket); if (!playerId) return;
+      const room = playerToRoom.get(playerId);
       if (!room) return;
-      const player = room.players.get(socket.id);
+      const player = room.players.get(playerId);
       if (!player || room.state !== 'playing') return;
       if (room.vanilla) return;
 
@@ -169,7 +279,39 @@ function registerHandlers(io) {
 
     socket.on('disconnect', () => {
       console.log(`Player disconnected: ${socket.id}`);
-      removePlayerFromRoom(socket.id);
+      const playerId = socketToPlayerId.get(socket.id);
+      socketToPlayerId.delete(socket.id);
+      if (!playerId) return;
+
+      // Only release the playerId->socket binding if this was the live socket for that playerId
+      if (playerIdToSocket.get(playerId) === socket.id) {
+        playerIdToSocket.delete(playerId);
+      }
+
+      const room = playerToRoom.get(playerId);
+      if (!room) return;
+      const player = room.players.get(playerId);
+      if (!player) return;
+
+      // Practice mode has no rejoin — remove immediately
+      if (room.practice) {
+        if (player.token) tokenToPlayerId.delete(player.token);
+        removePlayerFromRoom(playerId);
+        return;
+      }
+
+      // Mark as disconnected, freeze tank, start grace timer
+      player.disconnected = true;
+      player.disconnectedAt = Date.now();
+      player.input = {};
+
+      io.to(room.code).emit('playerDisconnected', { id: playerId, players: getPlayersInfo(room) });
+
+      player.graceTimer = setTimeout(() => {
+        if (player.token) tokenToPlayerId.delete(player.token);
+        player.graceTimer = null;
+        removePlayerFromRoom(playerId);
+      }, GRACE_PERIOD_MS);
     });
   });
 }

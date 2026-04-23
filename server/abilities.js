@@ -22,6 +22,7 @@ function updateMines(room) {
     for (const [pid, p] of room.players) {
       if (pid === m.owner) continue;
       if (!p.alive) continue;
+      if (p.disconnected) continue;
       if (C.withinDist(m.x, m.y, p.x, p.y, C.MINE_RADIUS)) {
         io.to(room.code).emit('mineExploded', { x: m.x, y: m.y, victim: pid });
         if (!(p.activeEffects && p.activeEffects.shield)) {

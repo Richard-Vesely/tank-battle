@@ -1,5 +1,5 @@
 const C = require('../shared/constants');
-const { rooms, playerToRoom, getIo } = require('./state');
+const { rooms, playerToRoom, playerIdToSocket, tokenToPlayerId, getIo } = require('./state');
 
 function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -50,8 +50,11 @@ function createRoom(mode, deathPenalty, mapSize, vanilla, dominationTarget) {
 
 function hasConnectedPlayers(room) {
   const io = getIo();
-  for (const [id] of room.players) {
-    if (io.sockets.sockets.get(id)) return true;
+  for (const [playerId, p] of room.players) {
+    // Grace-period disconnected players hold the room open
+    if (p && p.graceTimer) return true;
+    const socketId = playerIdToSocket.get(playerId);
+    if (socketId && io.sockets.sockets.get(socketId)) return true;
   }
   return false;
 }
@@ -68,7 +71,7 @@ function findQuickPlayRoom() {
 function getPlayersInfo(room) {
   const players = [];
   for (const [id, p] of room.players) {
-    players.push({ id, name: p.name, color: p.color, colorIndex: p.colorIndex, ready: p.ready });
+    players.push({ id, name: p.name, color: p.color, colorIndex: p.colorIndex, ready: p.ready, disconnected: !!p.disconnected });
   }
   return players;
 }
@@ -88,7 +91,12 @@ function startCleanupInterval() {
       if (!hasConnectedPlayers(room)) {
         clearInterval(room.tickInterval);
         clearInterval(room.broadcastInterval);
-        for (const [id] of room.players) playerToRoom.delete(id);
+        for (const [id, p] of room.players) {
+          playerToRoom.delete(id);
+          playerIdToSocket.delete(id);
+          if (p && p.token) tokenToPlayerId.delete(p.token);
+          if (p && p.graceTimer) { clearTimeout(p.graceTimer); p.graceTimer = null; }
+        }
         rooms.delete(code);
       }
     }

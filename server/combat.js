@@ -1,5 +1,5 @@
 const C = require('../shared/constants');
-const { rooms, playerToRoom, getIo } = require('./state');
+const { rooms, playerToRoom, playerIdToSocket, tokenToPlayerId, getIo } = require('./state');
 const { getPlayerMaxHp, getPlayerArmor, getAbilityLevel, getCoinBoostMult } = require('./player');
 const { getPlayersInfo } = require('./rooms');
 
@@ -83,10 +83,13 @@ function checkWinCondition(room) {
     }
   } else if (room.mode === C.MODE_FFA) {
     const alive = [];
+    let activePlayers = 0;
     for (const [id, p] of room.players) {
+      if (p.disconnected) continue;
+      activePlayers++;
       if (p.lives > 0 || p.alive) alive.push(id);
     }
-    if (alive.length <= 1 && room.players.size >= 2) {
+    if (alive.length <= 1 && activePlayers >= 2) {
       endGame(room, alive[0] || null);
     }
   }
@@ -123,14 +126,21 @@ function endGame(room, winnerId) {
   }, 5000);
 }
 
-function removePlayerFromRoom(socketId) {
+function removePlayerFromRoom(playerId) {
+  if (!playerId) return;
   const io = getIo();
-  const room = playerToRoom.get(socketId);
+  const room = playerToRoom.get(playerId);
   if (!room) return;
 
-  playerToRoom.delete(socketId);
-  room.players.delete(socketId);
-  io.to(room.code).emit('playerLeft', { id: socketId, players: getPlayersInfo(room) });
+  const player = room.players.get(playerId);
+  if (player) {
+    if (player.graceTimer) { clearTimeout(player.graceTimer); player.graceTimer = null; }
+    if (player.token) tokenToPlayerId.delete(player.token);
+  }
+  playerIdToSocket.delete(playerId);
+  playerToRoom.delete(playerId);
+  room.players.delete(playerId);
+  io.to(room.code).emit('playerLeft', { id: playerId, players: getPlayersInfo(room) });
 
   if (room.practice) {
     clearInterval(room.tickInterval);
