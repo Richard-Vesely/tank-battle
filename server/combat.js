@@ -1,5 +1,5 @@
 const C = require('../shared/constants');
-const { rooms, playerToRoom, playerIdToSocket, tokenToPlayerId, getIo } = require('./state');
+const { rooms, playerToRoom, playerIdToSocket, phraseKeyToPlayerId, getIo } = require('./state');
 const { getPlayerMaxHp, getPlayerArmor, getAbilityLevel, getCoinBoostMult } = require('./player');
 const { getPlayersInfo } = require('./rooms');
 
@@ -135,7 +135,7 @@ function removePlayerFromRoom(playerId) {
   const player = room.players.get(playerId);
   if (player) {
     if (player.graceTimer) { clearTimeout(player.graceTimer); player.graceTimer = null; }
-    if (player.token) tokenToPlayerId.delete(player.token);
+    if (player.phraseKey) phraseKeyToPlayerId.delete(player.phraseKey);
   }
   playerIdToSocket.delete(playerId);
   playerToRoom.delete(playerId);

@@ -1,12 +1,12 @@
-const crypto = require('crypto');
 const C = require('../shared/constants');
-const { rooms, playerToRoom, socketToPlayerId, playerIdToSocket, tokenToPlayerId } = require('./state');
+const { rooms, playerToRoom, socketToPlayerId, playerIdToSocket, phraseKeyToPlayerId } = require('./state');
 const { createRoom, findQuickPlayRoom, getPlayersInfo, getPlayerColorIndex } = require('./rooms');
 const { createPlayer, getStatLevel, getAbilityLevel, getPlayerMaxHp } = require('./player');
 const { removePlayerFromRoom } = require('./combat');
 const { startGame, startPractice, serializePlayer } = require('./game');
 
 const GRACE_PERIOD_MS = 60_000;
+const MAX_PHRASE_LENGTH = 24;
 
 function getPlayerId(socket) {
   return socketToPlayerId.get(socket.id);
@@ -17,71 +17,98 @@ function bindSocket(socket, playerId) {
   playerIdToSocket.set(playerId, socket.id);
 }
 
-function issueToken(playerId) {
-  const token = crypto.randomUUID();
-  tokenToPlayerId.set(token, playerId);
-  return token;
+function normalizePhrase(raw) {
+  if (typeof raw !== 'string') return '';
+  const trimmed = raw.trim().slice(0, MAX_PHRASE_LENGTH);
+  return trimmed;
+}
+
+function phraseKey(roomCode, phrase) {
+  return roomCode.toUpperCase() + ':' + phrase;
+}
+
+// Registers phrase as a rejoin credential for this player. Returns true if ok,
+// false if phrase is already taken by another player in the same room.
+function registerPhrase(room, player, rawPhrase) {
+  const phrase = normalizePhrase(rawPhrase);
+  if (!phrase) return true;  // empty = player opted out of rejoin
+  const key = phraseKey(room.code, phrase);
+  if (phraseKeyToPlayerId.has(key)) return false;
+  player.phrase = phrase;
+  player.phraseKey = key;
+  phraseKeyToPlayerId.set(key, null);  // placeholder; caller sets real playerId below
+  return true;
+}
+
+// Completes phrase registration after we know the playerId
+function finalizePhrase(player, playerId) {
+  if (player.phraseKey) phraseKeyToPlayerId.set(player.phraseKey, playerId);
 }
 
 function registerHandlers(io) {
   io.on('connection', (socket) => {
     console.log(`Player connected: ${socket.id}`);
 
-    socket.on('createRoom', ({ name, mode, deathPenalty, mapSize, vanilla, dominationTarget }) => {
+    socket.on('createRoom', ({ name, phrase, mode, deathPenalty, mapSize, vanilla, dominationTarget }) => {
       removePlayerFromRoom(getPlayerId(socket));
       const room = createRoom(mode, deathPenalty, mapSize, vanilla, dominationTarget);
       const colorIndex = getPlayerColorIndex(room);
       const player = createPlayer(name, colorIndex);
       const playerId = socket.id;
-      const token = issueToken(playerId);
-      player.token = token;
+      // A brand-new room can't have phrase collisions, so registerPhrase always returns true here.
+      registerPhrase(room, player, phrase);
+      finalizePhrase(player, playerId);
       room.players.set(playerId, player);
       playerToRoom.set(playerId, room);
       bindSocket(socket, playerId);
       room.scores[playerId] = 0;
       room.domScores[playerId] = 0;
       socket.join(room.code);
-      socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: playerId, token, mode: room.mode, deathPenalty: room.deathPenalty, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
+      socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: playerId, hasPhrase: !!player.phrase, mode: room.mode, deathPenalty: room.deathPenalty, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
     });
 
-    socket.on('joinRoom', ({ name, code }) => {
+    socket.on('joinRoom', ({ name, phrase, code }) => {
       const room = rooms.get((code || '').toUpperCase());
-      if (!room) return socket.emit('error', { message: 'Room not found' });
-      if (room.state !== 'waiting') return socket.emit('error', { message: 'Game in progress' });
-      if (room.players.size >= C.MAX_PLAYERS) return socket.emit('error', { message: 'Room full' });
+      if (!room) return socket.emit('error', { message: 'Místnost nenalezena' });
+      if (room.state !== 'waiting') return socket.emit('error', { message: 'Hra už začala' });
+      if (room.players.size >= C.MAX_PLAYERS) return socket.emit('error', { message: 'Místnost je plná' });
 
       removePlayerFromRoom(getPlayerId(socket));
       const colorIndex = getPlayerColorIndex(room);
       const player = createPlayer(name, colorIndex);
       const playerId = socket.id;
-      const token = issueToken(playerId);
-      player.token = token;
+      if (!registerPhrase(room, player, phrase)) {
+        return socket.emit('error', { message: 'Toto heslo už někdo v této místnosti používá' });
+      }
+      finalizePhrase(player, playerId);
       room.players.set(playerId, player);
       playerToRoom.set(playerId, room);
       bindSocket(socket, playerId);
       room.scores[playerId] = 0;
       room.domScores[playerId] = 0;
       socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: playerId, token, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: playerId, hasPhrase: !!player.phrase, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
       socket.to(room.code).emit('playerJoined', { id: playerId, players: getPlayersInfo(room) });
     });
 
-    socket.on('quickPlay', ({ name }) => {
+    socket.on('quickPlay', ({ name, phrase }) => {
       let room = findQuickPlayRoom();
       if (!room) room = createRoom(C.MODE_DOMINATION, C.DEATH_KEEP_UPGRADES, 'small');
       removePlayerFromRoom(getPlayerId(socket));
       const colorIndex = getPlayerColorIndex(room);
       const player = createPlayer(name, colorIndex);
       const playerId = socket.id;
-      const token = issueToken(playerId);
-      player.token = token;
+      if (!registerPhrase(room, player, phrase)) {
+        return socket.emit('error', { message: 'Toto heslo už někdo v této místnosti používá' });
+      }
+      finalizePhrase(player, playerId);
       room.players.set(playerId, player);
       playerToRoom.set(playerId, room);
       bindSocket(socket, playerId);
       room.scores[playerId] = 0;
       room.domScores[playerId] = 0;
       socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: playerId, token, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
+      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: playerId, hasPhrase: !!player.phrase, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
       socket.to(room.code).emit('playerJoined', { id: playerId, players: getPlayersInfo(room) });
     });
 
@@ -91,7 +118,7 @@ function registerHandlers(io) {
       const colorIndex = 0;
       const player = createPlayer(name || 'Player', colorIndex);
       const playerId = socket.id;
-      // Practice doesn't support rejoin — no token issued
+      // Practice doesn't support rejoin — no phrase needed
       room.players.set(playerId, player);
       playerToRoom.set(playerId, room);
       bindSocket(socket, playerId);
@@ -102,15 +129,17 @@ function registerHandlers(io) {
       startPractice(room, playerId);
     });
 
-    socket.on('rejoinRoom', ({ roomCode, token }) => {
-      console.log(`[rejoinRoom] socket=${socket.id} roomCode=${roomCode} token=${token ? token.slice(0, 8) + '...' : '(none)'}`);
-      if (!roomCode || !token) { console.log('[rejoinRoom] missing args'); return socket.emit('sessionInvalid'); }
-      const playerId = tokenToPlayerId.get(token);
-      if (!playerId) { console.log('[rejoinRoom] unknown token'); return socket.emit('sessionInvalid'); }
+    socket.on('rejoinRoom', ({ roomCode, phrase }) => {
+      const normalizedPhrase = normalizePhrase(phrase);
+      console.log(`[rejoinRoom] socket=${socket.id} roomCode=${roomCode} phrase=${normalizedPhrase ? '(' + normalizedPhrase.length + ' chars)' : '(none)'}`);
+      if (!roomCode || !normalizedPhrase) { console.log('[rejoinRoom] missing args'); return socket.emit('sessionInvalid'); }
+      const key = phraseKey(roomCode, normalizedPhrase);
+      const playerId = phraseKeyToPlayerId.get(key);
+      if (!playerId) { console.log('[rejoinRoom] unknown phrase'); return socket.emit('sessionInvalid'); }
       const room = playerToRoom.get(playerId);
-      if (!room || room.code !== roomCode.toUpperCase()) { console.log('[rejoinRoom] no room for this token'); return socket.emit('sessionInvalid'); }
+      if (!room || room.code !== roomCode.toUpperCase()) { console.log('[rejoinRoom] no room for this phrase'); return socket.emit('sessionInvalid'); }
       const player = room.players.get(playerId);
-      if (!player || player.token !== token) { console.log('[rejoinRoom] player/token mismatch'); return socket.emit('sessionInvalid'); }
+      if (!player || player.phrase !== normalizedPhrase) { console.log('[rejoinRoom] player/phrase mismatch'); return socket.emit('sessionInvalid'); }
 
       // Kick whichever socket is currently bound (if any) so we take over cleanly.
       // This also handles the race where the tab was just closed but the server
@@ -119,24 +148,19 @@ function registerHandlers(io) {
       if (prevSocketId && prevSocketId !== socket.id) {
         const prevSocket = io.sockets.sockets.get(prevSocketId);
         if (prevSocket) {
-          // Don't let the prev socket's disconnect logic run its grace path,
-          // because we're immediately replacing it.
           socketToPlayerId.delete(prevSocketId);
           prevSocket.disconnect(true);
         }
       }
 
-      // Clear grace timer (if one exists)
       if (player.graceTimer) { clearTimeout(player.graceTimer); player.graceTimer = null; }
       player.disconnected = false;
       player.disconnectedAt = 0;
 
-      // Rebind new socket to the existing permanent playerId
       bindSocket(socket, playerId);
       socket.join(room.code);
       console.log(`[rejoinRoom] OK playerId=${playerId} state=${room.state}`);
 
-      // Deliver appropriate state to the rejoining client
       if (room.state === 'playing') {
         // rejoinSuccess first so the client sets myId before gameStart renders
         socket.emit('rejoinSuccess', { you: playerId, code: room.code });
@@ -156,33 +180,25 @@ function registerHandlers(io) {
           players,
         });
       } else {
-        // 'waiting' or 'gameOver' — land in the waiting screen
         socket.emit('roomJoined', {
           code: room.code,
           players: getPlayersInfo(room),
           mode: room.mode,
           deathPenalty: room.deathPenalty,
           you: playerId,
-          token,
+          hasPhrase: true,
           mapSize: room.mapSize,
           vanilla: room.vanilla,
           dominationTarget: room.dominationTarget,
         });
       }
 
-      // Tell the rest of the room
       socket.to(room.code).emit('playerReconnected', { id: playerId, players: getPlayersInfo(room) });
     });
 
     socket.on('leaveRoom', () => {
       const playerId = getPlayerId(socket);
       if (!playerId) return;
-      const room = playerToRoom.get(playerId);
-      if (room) {
-        const player = room.players.get(playerId);
-        if (player && player.token) tokenToPlayerId.delete(player.token);
-        if (player && player.graceTimer) { clearTimeout(player.graceTimer); player.graceTimer = null; }
-      }
       removePlayerFromRoom(playerId);
       socketToPlayerId.delete(socket.id);
     });
@@ -194,7 +210,6 @@ function registerHandlers(io) {
       const player = room.players.get(playerId);
       if (!player) return;
       if (typeof colorIndex !== 'number' || colorIndex < 0 || colorIndex >= C.TANK_COLORS.length) return;
-      // Check if color is already taken by another player
       for (const [id, p] of room.players) {
         if (id !== playerId && p.colorIndex === colorIndex) {
           socket.emit('error', { message: 'Tuhle barvu už má někdo jiný' });
@@ -221,7 +236,6 @@ function registerHandlers(io) {
       if (typeof vanilla === 'boolean') room.vanilla = vanilla;
       if (typeof dominationTarget === 'number' && dominationTarget > 0) room.dominationTarget = dominationTarget;
 
-      // Reset ready status when settings change
       for (const [, p] of room.players) p.ready = false;
 
       io.to(room.code).emit('roomSettingsUpdated', {
@@ -296,9 +310,6 @@ function registerHandlers(io) {
       socketToPlayerId.delete(socket.id);
       if (!playerId) return;
 
-      // If another socket has already taken over this player (via rejoinRoom that
-      // arrived BEFORE this disconnect event), silently drop — the player is already
-      // live on the new socket.
       const currentBoundSocket = playerIdToSocket.get(playerId);
       if (currentBoundSocket && currentBoundSocket !== socket.id) {
         console.log(`[disconnect] playerId=${playerId} already rebound to ${currentBoundSocket} — no-op`);
@@ -311,9 +322,14 @@ function registerHandlers(io) {
       const player = room.players.get(playerId);
       if (!player) return;
 
-      // Practice mode has no rejoin — remove immediately
       if (room.practice) {
-        if (player.token) tokenToPlayerId.delete(player.token);
+        removePlayerFromRoom(playerId);
+        return;
+      }
+
+      // Players who didn't set a phrase can't rejoin — remove immediately so their
+      // slot frees up for the rest of the round.
+      if (!player.phrase) {
         removePlayerFromRoom(playerId);
         return;
       }
@@ -326,7 +342,6 @@ function registerHandlers(io) {
       io.to(room.code).emit('playerDisconnected', { id: playerId, players: getPlayersInfo(room) });
 
       player.graceTimer = setTimeout(() => {
-        if (player.token) tokenToPlayerId.delete(player.token);
         player.graceTimer = null;
         removePlayerFromRoom(playerId);
       }, GRACE_PERIOD_MS);

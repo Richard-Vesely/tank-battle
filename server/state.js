@@ -7,7 +7,8 @@ const playerToRoom = new Map();
 // On reconnect, a new socket.id is bound to the same playerId via these maps.
 const socketToPlayerId = new Map();  // current socket.id -> permanent player id
 const playerIdToSocket = new Map();  // permanent player id -> current socket.id
-const tokenToPlayerId = new Map();   // rejoin token -> permanent player id
+// Rejoin credential: user-supplied phrase, scoped by room code. Key format: `${ROOMCODE}:${phrase}`
+const phraseKeyToPlayerId = new Map();
 
 let io = null;
 
@@ -21,6 +22,6 @@ function getIo() {
 
 module.exports = {
   rooms, playerToRoom,
-  socketToPlayerId, playerIdToSocket, tokenToPlayerId,
+  socketToPlayerId, playerIdToSocket, phraseKeyToPlayerId,
   init, getIo,
 };

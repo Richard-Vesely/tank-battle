@@ -1,5 +1,5 @@
 const C = require('../shared/constants');
-const { rooms, playerToRoom, playerIdToSocket, tokenToPlayerId, getIo } = require('./state');
+const { rooms, playerToRoom, playerIdToSocket, phraseKeyToPlayerId, getIo } = require('./state');
 
 function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -94,7 +94,7 @@ function startCleanupInterval() {
         for (const [id, p] of room.players) {
           playerToRoom.delete(id);
           playerIdToSocket.delete(id);
-          if (p && p.token) tokenToPlayerId.delete(p.token);
+          if (p && p.phraseKey) phraseKeyToPlayerId.delete(p.phraseKey);
           if (p && p.graceTimer) { clearTimeout(p.graceTimer); p.graceTimer = null; }
         }
         rooms.delete(code);
