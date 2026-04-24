@@ -59,9 +59,11 @@ const CONSTANTS = {
   // ─── Currency ────────────────────────────────────────────
   KILL_CURRENCY: 100,
   ASSIST_CURRENCY: 30,
-  CREDIT_SPAWN_INTERVAL: 8000,
-  CREDIT_MAX_ON_MAP_BASE: 5,         // base for 4 players
+  CREDIT_SPAWN_INTERVAL: 5500,
+  CREDIT_MAX_ON_MAP_BASE: 20,        // base for 4 players
   CREDIT_MAX_PER_EXTRA_PLAYER: 0.5,  // +0.5 per player above 4 (rounds up)
+  CREDIT_ZONE_EXCLUSION_TILES: 5,    // min distance (tiles) from any capture zone in domination mode
+  VAMPIRE_KILL_CD_REDUCTION: 1000,   // ms shaved off every active cooldown per kill while Vampire is up
 
   // ─── Stats (formula-based, unlimited levels) ───────────
   // cost(level) = baseCost * costMult^level  (level is 0-indexed: buying first upgrade = level 0)
@@ -86,7 +88,7 @@ const CONSTANTS = {
       // maxHp increases, armor (damage multiplier) decreases
     },
     coinBoost: {
-      name: 'Coin Boost', baseCost: 150, costMult: 2,
+      name: 'Coin Boost', baseCost: 75, costMult: 2,
       // +10% coins from everything per level
       pctPerLevel: { coinMult: 0.10 },
     },
@@ -96,7 +98,7 @@ const CONSTANTS = {
       flat: { hpPerSec: 0.5 },
     },
     fasterCooldown: {
-      name: 'Fast CD', baseCost: 150, costMult: 2,
+      name: 'Fast CD', baseCost: 75, costMult: 2,
       // -1s ability cooldown per level
       flat: { cdReduction: 1000 },
     },
@@ -124,8 +126,9 @@ const CONSTANTS = {
     },
     vampire:    { name: 'Vampire',      key: 'E', type: 'duration', baseCost: 200, costMult: 2,
       duration: 5000,
-      base: { killCRMult: 2, healPercent: 0.25, cooldown: 25000 },
+      base: { killCRMult: 2, healPercent: 0.45, cooldown: 25000 },
       pctPerLevel: { killCRMult: 0.50, healPercent: 0.15, cooldown: 0.08 },
+      // On kill while active: all active cooldowns reduced by VAMPIRE_KILL_CD_REDUCTION ms
     },
     hide:       { name: 'Hide',         key: 'R', type: 'duration', baseCost: 200, costMult: 2,
       duration: 5000,

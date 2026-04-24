@@ -222,6 +222,8 @@ function registerHandlers(io) {
         if (player.currency < cost) return;
         player.currency -= cost;
         player.abilities[key] = currentLevel + 1;
+        // Insta-recharge on upgrade so the player can immediately use the new level.
+        if (player.abilityCooldowns) player.abilityCooldowns[key] = 0;
         socket.emit('upgradeSuccess', { type: 'ability', key, level: player.abilities[key], currency: player.currency, stats: player.stats, abilities: player.abilities });
       }
     });

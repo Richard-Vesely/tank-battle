@@ -176,7 +176,11 @@ const Game = (() => {
     });
 
     Network.on('vampireProc', (data) => {
-      if (data.id === myId) Lobby.showMessage(`VAMPIRE: ${data.earnedCR} CR, +${data.heal} HP`, 1500);
+      if (data.id === myId) {
+        const cdCount = (data.cdReduced && data.cdReduced.length) || 0;
+        const cdPart = cdCount > 0 ? `, -${(data.cdShave || 0) / 1000}s x${cdCount} CD` : '';
+        Lobby.showMessage(`VAMPIRE: ${data.earnedCR} CR, +${data.heal} HP${cdPart}`, 1500);
+      }
     });
 
     Network.on('mineExploded', (data) => {

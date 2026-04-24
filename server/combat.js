@@ -47,7 +47,16 @@ function killPlayer(room, victimId, killerId) {
         const healPct = C.getAbilityValue('vampire', 'healPercent', vLvl);
         const healAmt = Math.floor(killer.maxHp * healPct);
         killer.hp = Math.min(killer.hp + healAmt, killer.maxHp);
-        io.to(room.code).emit('vampireProc', { id: killerId, heal: healAmt, earnedCR });
+        // Shave time off every currently-active cooldown
+        const cdShave = C.VAMPIRE_KILL_CD_REDUCTION;
+        const cdReduced = [];
+        for (const key of Object.keys(killer.abilityCooldowns || {})) {
+          if (killer.abilityCooldowns[key] > 0) {
+            killer.abilityCooldowns[key] = Math.max(0, killer.abilityCooldowns[key] - cdShave);
+            cdReduced.push(key);
+          }
+        }
+        io.to(room.code).emit('vampireProc', { id: killerId, heal: healAmt, earnedCR, cdReduced, cdShave });
       }
 
       earnedCR = Math.round(earnedCR * getCoinBoostMult(killer));
