@@ -23,20 +23,15 @@ function normalizePhrase(raw) {
   return trimmed;
 }
 
-function phraseKey(roomCode, phrase) {
-  return roomCode.toUpperCase() + ':' + phrase;
-}
-
-// Registers phrase as a rejoin credential for this player. Returns true if ok,
-// false if phrase is already taken by another player in the same room.
+// Registers phrase as a globally-unique rejoin credential. Returns true if ok,
+// false if phrase is already taken by any player on the server.
 function registerPhrase(room, player, rawPhrase) {
   const phrase = normalizePhrase(rawPhrase);
   if (!phrase) return true;  // empty = player opted out of rejoin
-  const key = phraseKey(room.code, phrase);
-  if (phraseKeyToPlayerId.has(key)) return false;
+  if (phraseKeyToPlayerId.has(phrase)) return false;
   player.phrase = phrase;
-  player.phraseKey = key;
-  phraseKeyToPlayerId.set(key, null);  // placeholder; caller sets real playerId below
+  player.phraseKey = phrase;
+  phraseKeyToPlayerId.set(phrase, null);  // placeholder; caller sets real playerId below
   return true;
 }
 
@@ -78,7 +73,7 @@ function registerHandlers(io) {
       const player = createPlayer(name, colorIndex);
       const playerId = socket.id;
       if (!registerPhrase(room, player, phrase)) {
-        return socket.emit('error', { message: 'Toto heslo už někdo v této místnosti používá' });
+        return socket.emit('error', { message: 'Toto heslo už někdo používá. Zkus jiné.' });
       }
       finalizePhrase(player, playerId);
       room.players.set(playerId, player);
@@ -99,7 +94,7 @@ function registerHandlers(io) {
       const player = createPlayer(name, colorIndex);
       const playerId = socket.id;
       if (!registerPhrase(room, player, phrase)) {
-        return socket.emit('error', { message: 'Toto heslo už někdo v této místnosti používá' });
+        return socket.emit('error', { message: 'Toto heslo už někdo používá. Zkus jiné.' });
       }
       finalizePhrase(player, playerId);
       room.players.set(playerId, player);
@@ -129,15 +124,14 @@ function registerHandlers(io) {
       startPractice(room, playerId);
     });
 
-    socket.on('rejoinRoom', ({ roomCode, phrase }) => {
+    socket.on('rejoinRoom', ({ phrase }) => {
       const normalizedPhrase = normalizePhrase(phrase);
-      console.log(`[rejoinRoom] socket=${socket.id} roomCode=${roomCode} phrase=${normalizedPhrase ? '(' + normalizedPhrase.length + ' chars)' : '(none)'}`);
-      if (!roomCode || !normalizedPhrase) { console.log('[rejoinRoom] missing args'); return socket.emit('sessionInvalid'); }
-      const key = phraseKey(roomCode, normalizedPhrase);
-      const playerId = phraseKeyToPlayerId.get(key);
+      console.log(`[rejoinRoom] socket=${socket.id} phrase=${normalizedPhrase ? '(' + normalizedPhrase.length + ' chars)' : '(none)'}`);
+      if (!normalizedPhrase) { console.log('[rejoinRoom] missing phrase'); return socket.emit('sessionInvalid'); }
+      const playerId = phraseKeyToPlayerId.get(normalizedPhrase);
       if (!playerId) { console.log('[rejoinRoom] unknown phrase'); return socket.emit('sessionInvalid'); }
       const room = playerToRoom.get(playerId);
-      if (!room || room.code !== roomCode.toUpperCase()) { console.log('[rejoinRoom] no room for this phrase'); return socket.emit('sessionInvalid'); }
+      if (!room) { console.log('[rejoinRoom] no room for this phrase'); return socket.emit('sessionInvalid'); }
       const player = room.players.get(playerId);
       if (!player || player.phrase !== normalizedPhrase) { console.log('[rejoinRoom] player/phrase mismatch'); return socket.emit('sessionInvalid'); }
 
