@@ -135,7 +135,7 @@ function removePlayerFromRoom(playerId) {
   const player = room.players.get(playerId);
   if (player) {
     if (player.graceTimer) { clearTimeout(player.graceTimer); player.graceTimer = null; }
-    if (player.phraseKey) phraseKeyToPlayerId.delete(player.phraseKey);
+    if (player.phrase) phraseKeyToPlayerId.delete(player.phrase);
   }
   playerIdToSocket.delete(playerId);
   playerToRoom.delete(playerId);

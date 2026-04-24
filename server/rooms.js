@@ -94,7 +94,7 @@ function startCleanupInterval() {
         for (const [id, p] of room.players) {
           playerToRoom.delete(id);
           playerIdToSocket.delete(id);
-          if (p && p.phraseKey) phraseKeyToPlayerId.delete(p.phraseKey);
+          if (p && p.phrase) phraseKeyToPlayerId.delete(p.phrase);
           if (p && p.graceTimer) { clearTimeout(p.graceTimer); p.graceTimer = null; }
         }
         rooms.delete(code);

@@ -2,12 +2,12 @@
 const rooms = new Map();
 const playerToRoom = new Map();
 
-// Rejoin support: stable player id survives socket disconnect/reconnect.
-// On first join, a player's socket.id is adopted as their permanent playerId.
-// On reconnect, a new socket.id is bound to the same playerId via these maps.
+// Rejoin support: stable player id (UUID) survives socket disconnect/reconnect.
+// playerId is allocated once per player and never changes; the socket binding
+// below is what rebinds when the player reconnects.
 const socketToPlayerId = new Map();  // current socket.id -> permanent player id
 const playerIdToSocket = new Map();  // permanent player id -> current socket.id
-// Rejoin credential: user-supplied phrase, scoped by room code. Key format: `${ROOMCODE}:${phrase}`
+// Rejoin credential: globally-unique user-supplied phrase. Key is the phrase itself.
 const phraseKeyToPlayerId = new Map();
 
 let io = null;

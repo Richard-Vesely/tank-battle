@@ -1,65 +1,56 @@
 const C = require('../shared/constants');
-const { rooms, playerToRoom, socketToPlayerId, playerIdToSocket, phraseKeyToPlayerId } = require('./state');
+const { rooms, playerToRoom } = require('./state');
 const { createRoom, findQuickPlayRoom, getPlayersInfo, getPlayerColorIndex } = require('./rooms');
 const { createPlayer, getStatLevel, getAbilityLevel, getPlayerMaxHp } = require('./player');
 const { removePlayerFromRoom } = require('./combat');
 const { startGame, startPractice, serializePlayer } = require('./game');
+const {
+  allocatePlayerId, getPlayerId, bindSocket, clearSocketBinding,
+  registerPhrase, handleRejoin, handleDisconnect,
+} = require('./session');
 
-const GRACE_PERIOD_MS = 60_000;
-const MAX_PHRASE_LENGTH = 24;
-
-function getPlayerId(socket) {
-  return socketToPlayerId.get(socket.id);
+// Attaches a fresh player to a room: creates player, allocates UUID, registers
+// phrase, wires up identity maps, scores, and socket. Returns { playerId, player }
+// on success, or null on phrase collision (an error is emitted to the socket).
+function attachPlayerToRoom({ socket, room, name, phrase, colorIndex }) {
+  const player = createPlayer(name, colorIndex);
+  const playerId = allocatePlayerId();
+  if (!registerPhrase(player, playerId, phrase)) {
+    socket.emit('error', { message: 'Toto heslo už někdo používá. Zkus jiné.' });
+    return null;
+  }
+  room.players.set(playerId, player);
+  playerToRoom.set(playerId, room);
+  bindSocket(socket, playerId);
+  room.scores[playerId] = 0;
+  room.domScores[playerId] = 0;
+  socket.join(room.code);
+  return { playerId, player };
 }
 
-function bindSocket(socket, playerId) {
-  socketToPlayerId.set(socket.id, playerId);
-  playerIdToSocket.set(playerId, socket.id);
-}
-
-function normalizePhrase(raw) {
-  if (typeof raw !== 'string') return '';
-  const trimmed = raw.trim().slice(0, MAX_PHRASE_LENGTH);
-  return trimmed;
-}
-
-// Registers phrase as a globally-unique rejoin credential. Returns true if ok,
-// false if phrase is already taken by any player on the server.
-function registerPhrase(room, player, rawPhrase) {
-  const phrase = normalizePhrase(rawPhrase);
-  if (!phrase) return true;  // empty = player opted out of rejoin
-  if (phraseKeyToPlayerId.has(phrase)) return false;
-  player.phrase = phrase;
-  player.phraseKey = phrase;
-  phraseKeyToPlayerId.set(phrase, null);  // placeholder; caller sets real playerId below
-  return true;
-}
-
-// Completes phrase registration after we know the playerId
-function finalizePhrase(player, playerId) {
-  if (player.phraseKey) phraseKeyToPlayerId.set(player.phraseKey, playerId);
+// Payload sent back to a client whenever they land in a room (create/join/quickPlay/rejoin-waiting).
+function roomJoinedPayload(room, playerId) {
+  return {
+    code: room.code,
+    players: getPlayersInfo(room),
+    mode: room.mode,
+    deathPenalty: room.deathPenalty,
+    you: playerId,
+    mapSize: room.mapSize,
+    vanilla: room.vanilla,
+    dominationTarget: room.dominationTarget,
+  };
 }
 
 function registerHandlers(io) {
   io.on('connection', (socket) => {
-    console.log(`Player connected: ${socket.id}`);
-
     socket.on('createRoom', ({ name, phrase, mode, deathPenalty, mapSize, vanilla, dominationTarget }) => {
       removePlayerFromRoom(getPlayerId(socket));
       const room = createRoom(mode, deathPenalty, mapSize, vanilla, dominationTarget);
       const colorIndex = getPlayerColorIndex(room);
-      const player = createPlayer(name, colorIndex);
-      const playerId = socket.id;
-      // A brand-new room can't have phrase collisions, so registerPhrase always returns true here.
-      registerPhrase(room, player, phrase);
-      finalizePhrase(player, playerId);
-      room.players.set(playerId, player);
-      playerToRoom.set(playerId, room);
-      bindSocket(socket, playerId);
-      room.scores[playerId] = 0;
-      room.domScores[playerId] = 0;
-      socket.join(room.code);
-      socket.emit('roomCreated', { code: room.code, players: getPlayersInfo(room), you: playerId, hasPhrase: !!player.phrase, mode: room.mode, deathPenalty: room.deathPenalty, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
+      const attached = attachPlayerToRoom({ socket, room, name, phrase, colorIndex });
+      if (!attached) return;
+      socket.emit('roomCreated', roomJoinedPayload(room, attached.playerId));
     });
 
     socket.on('joinRoom', ({ name, phrase, code }) => {
@@ -70,20 +61,10 @@ function registerHandlers(io) {
 
       removePlayerFromRoom(getPlayerId(socket));
       const colorIndex = getPlayerColorIndex(room);
-      const player = createPlayer(name, colorIndex);
-      const playerId = socket.id;
-      if (!registerPhrase(room, player, phrase)) {
-        return socket.emit('error', { message: 'Toto heslo už někdo používá. Zkus jiné.' });
-      }
-      finalizePhrase(player, playerId);
-      room.players.set(playerId, player);
-      playerToRoom.set(playerId, room);
-      bindSocket(socket, playerId);
-      room.scores[playerId] = 0;
-      room.domScores[playerId] = 0;
-      socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: playerId, hasPhrase: !!player.phrase, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
-      socket.to(room.code).emit('playerJoined', { id: playerId, players: getPlayersInfo(room) });
+      const attached = attachPlayerToRoom({ socket, room, name, phrase, colorIndex });
+      if (!attached) return;
+      socket.emit('roomJoined', roomJoinedPayload(room, attached.playerId));
+      socket.to(room.code).emit('playerJoined', { id: attached.playerId, players: getPlayersInfo(room) });
     });
 
     socket.on('quickPlay', ({ name, phrase }) => {
@@ -91,69 +72,26 @@ function registerHandlers(io) {
       if (!room) room = createRoom(C.MODE_DOMINATION, C.DEATH_KEEP_UPGRADES, 'small');
       removePlayerFromRoom(getPlayerId(socket));
       const colorIndex = getPlayerColorIndex(room);
-      const player = createPlayer(name, colorIndex);
-      const playerId = socket.id;
-      if (!registerPhrase(room, player, phrase)) {
-        return socket.emit('error', { message: 'Toto heslo už někdo používá. Zkus jiné.' });
-      }
-      finalizePhrase(player, playerId);
-      room.players.set(playerId, player);
-      playerToRoom.set(playerId, room);
-      bindSocket(socket, playerId);
-      room.scores[playerId] = 0;
-      room.domScores[playerId] = 0;
-      socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: playerId, hasPhrase: !!player.phrase, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
-      socket.to(room.code).emit('playerJoined', { id: playerId, players: getPlayersInfo(room) });
+      const attached = attachPlayerToRoom({ socket, room, name, phrase, colorIndex });
+      if (!attached) return;
+      socket.emit('roomJoined', roomJoinedPayload(room, attached.playerId));
+      socket.to(room.code).emit('playerJoined', { id: attached.playerId, players: getPlayersInfo(room) });
     });
 
     socket.on('startPractice', ({ name, deathPenalty, mapSize, vanilla, dominationTarget }) => {
       removePlayerFromRoom(getPlayerId(socket));
       const room = createRoom(C.MODE_DOMINATION, deathPenalty || C.DEATH_KEEP_UPGRADES, mapSize || 'small', vanilla, dominationTarget);
-      const colorIndex = 0;
-      const player = createPlayer(name || 'Player', colorIndex);
-      const playerId = socket.id;
-      // Practice doesn't support rejoin — no phrase needed
-      room.players.set(playerId, player);
-      playerToRoom.set(playerId, room);
-      bindSocket(socket, playerId);
-      room.scores[playerId] = 0;
-      room.domScores[playerId] = 0;
-      socket.join(room.code);
-      socket.emit('roomJoined', { code: room.code, players: getPlayersInfo(room), mode: room.mode, deathPenalty: room.deathPenalty, you: playerId, mapSize: room.mapSize, vanilla: room.vanilla, dominationTarget: room.dominationTarget });
-      startPractice(room, playerId);
+      // Practice doesn't support rejoin — phrase is always empty.
+      const attached = attachPlayerToRoom({ socket, room, name: name || 'Player', phrase: null, colorIndex: 0 });
+      if (!attached) return;
+      socket.emit('roomJoined', roomJoinedPayload(room, attached.playerId));
+      startPractice(room, attached.playerId);
     });
 
     socket.on('rejoinRoom', ({ phrase }) => {
-      const normalizedPhrase = normalizePhrase(phrase);
-      console.log(`[rejoinRoom] socket=${socket.id} phrase=${normalizedPhrase ? '(' + normalizedPhrase.length + ' chars)' : '(none)'}`);
-      if (!normalizedPhrase) { console.log('[rejoinRoom] missing phrase'); return socket.emit('sessionInvalid'); }
-      const playerId = phraseKeyToPlayerId.get(normalizedPhrase);
-      if (!playerId) { console.log('[rejoinRoom] unknown phrase'); return socket.emit('sessionInvalid'); }
-      const room = playerToRoom.get(playerId);
-      if (!room) { console.log('[rejoinRoom] no room for this phrase'); return socket.emit('sessionInvalid'); }
-      const player = room.players.get(playerId);
-      if (!player || player.phrase !== normalizedPhrase) { console.log('[rejoinRoom] player/phrase mismatch'); return socket.emit('sessionInvalid'); }
-
-      // Kick whichever socket is currently bound (if any) so we take over cleanly.
-      // This also handles the race where the tab was just closed but the server
-      // hasn't processed the disconnect yet.
-      const prevSocketId = playerIdToSocket.get(playerId);
-      if (prevSocketId && prevSocketId !== socket.id) {
-        const prevSocket = io.sockets.sockets.get(prevSocketId);
-        if (prevSocket) {
-          socketToPlayerId.delete(prevSocketId);
-          prevSocket.disconnect(true);
-        }
-      }
-
-      if (player.graceTimer) { clearTimeout(player.graceTimer); player.graceTimer = null; }
-      player.disconnected = false;
-      player.disconnectedAt = 0;
-
-      bindSocket(socket, playerId);
-      socket.join(room.code);
-      console.log(`[rejoinRoom] OK playerId=${playerId} state=${room.state}`);
+      const result = handleRejoin(io, socket, phrase);
+      if (!result) return;
+      const { room, playerId } = result;
 
       if (room.state === 'playing') {
         // rejoinSuccess first so the client sets myId before gameStart renders
@@ -174,17 +112,7 @@ function registerHandlers(io) {
           players,
         });
       } else {
-        socket.emit('roomJoined', {
-          code: room.code,
-          players: getPlayersInfo(room),
-          mode: room.mode,
-          deathPenalty: room.deathPenalty,
-          you: playerId,
-          hasPhrase: true,
-          mapSize: room.mapSize,
-          vanilla: room.vanilla,
-          dominationTarget: room.dominationTarget,
-        });
+        socket.emit('roomJoined', roomJoinedPayload(room, playerId));
       }
 
       socket.to(room.code).emit('playerReconnected', { id: playerId, players: getPlayersInfo(room) });
@@ -194,7 +122,7 @@ function registerHandlers(io) {
       const playerId = getPlayerId(socket);
       if (!playerId) return;
       removePlayerFromRoom(playerId);
-      socketToPlayerId.delete(socket.id);
+      clearSocketBinding(socket.id);
     });
 
     socket.on('changeColor', ({ colorIndex }) => {
@@ -298,48 +226,7 @@ function registerHandlers(io) {
       }
     });
 
-    socket.on('disconnect', () => {
-      console.log(`Player disconnected: ${socket.id}`);
-      const playerId = socketToPlayerId.get(socket.id);
-      socketToPlayerId.delete(socket.id);
-      if (!playerId) return;
-
-      const currentBoundSocket = playerIdToSocket.get(playerId);
-      if (currentBoundSocket && currentBoundSocket !== socket.id) {
-        console.log(`[disconnect] playerId=${playerId} already rebound to ${currentBoundSocket} — no-op`);
-        return;
-      }
-      playerIdToSocket.delete(playerId);
-
-      const room = playerToRoom.get(playerId);
-      if (!room) return;
-      const player = room.players.get(playerId);
-      if (!player) return;
-
-      if (room.practice) {
-        removePlayerFromRoom(playerId);
-        return;
-      }
-
-      // Players who didn't set a phrase can't rejoin — remove immediately so their
-      // slot frees up for the rest of the round.
-      if (!player.phrase) {
-        removePlayerFromRoom(playerId);
-        return;
-      }
-
-      // Mark as disconnected, freeze tank, start grace timer
-      player.disconnected = true;
-      player.disconnectedAt = Date.now();
-      player.input = {};
-
-      io.to(room.code).emit('playerDisconnected', { id: playerId, players: getPlayersInfo(room) });
-
-      player.graceTimer = setTimeout(() => {
-        player.graceTimer = null;
-        removePlayerFromRoom(playerId);
-      }, GRACE_PERIOD_MS);
-    });
+    socket.on('disconnect', () => handleDisconnect(io, socket));
   });
 }
 
