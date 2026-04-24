@@ -1,4 +1,10 @@
-// Shared constants between server and client
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTHORITATIVE game configuration. This is the single source of truth.
+// The server emits this (minus functions) in the `gameStart` Socket.io event;
+// the website client (ardoremy_actually_website_github_repo/hry/tank-battle/
+// constants.ts) merges it over its local fallback defaults at match start.
+// Edit here — never in the website's constants.ts.
+// ─────────────────────────────────────────────────────────────────────────────
 const CONSTANTS = {
   // Tile size in pixels
   TILE_SIZE: 32,

@@ -13,6 +13,16 @@ const { spawnPowerup, spawnCreditPickup } = require('./spawning');
 const { updateCaptureZones } = require('./domination');
 const { createBot, updateBots } = require('./bots');
 
+// Strip functions so the CONSTANTS object can be JSON-serialized over Socket.io.
+// Functions (helpers like getStatCost) are re-implemented on the client.
+function serializeConfig(C) {
+  const out = {};
+  for (const key of Object.keys(C)) {
+    if (typeof C[key] !== 'function') out[key] = C[key];
+  }
+  return out;
+}
+
 function serializePlayer(id, p) {
   const effectKeys = Object.keys(p.activeEffects || {});
   return {
@@ -119,7 +129,10 @@ function startGame(room) {
     vanilla: room.vanilla || false,
     dominationTarget: room.dominationTarget || C.DOMINATION_WIN_SCORE,
     captureZones: room.captureZones.map(z => ({ x: z.x, y: z.y, label: z.label })),
-    players: startPlayers
+    players: startPlayers,
+    // Authoritative game config. Client merges this over its local defaults.
+    // Helper functions (getStatCost, etc.) live on the client — we send data only.
+    config: serializeConfig(C),
   });
 
   const tickMs = 1000 / C.TICK_RATE;
@@ -351,4 +364,4 @@ function startPractice(room, socketId) {
   }
 }
 
-module.exports = { startGame, updateGame, broadcastState, startPractice, serializePlayer, getGameState };
+module.exports = { startGame, updateGame, broadcastState, startPractice, serializePlayer, getGameState, serializeConfig };

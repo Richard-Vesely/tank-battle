@@ -3,7 +3,7 @@ const { rooms, playerToRoom } = require('./state');
 const { createRoom, findQuickPlayRoom, getPlayersInfo, getPlayerColorIndex } = require('./rooms');
 const { createPlayer, getStatLevel, getAbilityLevel, getPlayerMaxHp } = require('./player');
 const { removePlayerFromRoom } = require('./combat');
-const { startGame, startPractice, serializePlayer } = require('./game');
+const { startGame, startPractice, serializePlayer, serializeConfig } = require('./game');
 const {
   allocatePlayerId, getPlayerId, bindSocket, clearSocketBinding,
   registerPhrase, handleRejoin, handleDisconnect,
@@ -110,6 +110,7 @@ function registerHandlers(io) {
           dominationTarget: room.dominationTarget || C.DOMINATION_WIN_SCORE,
           captureZones: room.captureZones.map(z => ({ x: z.x, y: z.y, label: z.label })),
           players,
+          config: serializeConfig(C),
         });
       } else {
         socket.emit('roomJoined', roomJoinedPayload(room, playerId));
