@@ -1,7 +1,6 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
 const state = require('./server/state');
 const { startCleanupInterval } = require('./server/rooms');
 const { registerHandlers } = require('./server/handlers');
@@ -15,8 +14,7 @@ const io = new Server(server, {
   }
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/shared', express.static(path.join(__dirname, 'shared')));
+app.get('/', (_req, res) => res.send('Tank Battle server — client is served from the Ardoremy website.'));
 
 state.init(io);
 startCleanupInterval();
@@ -24,5 +22,5 @@ registerHandlers(io);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Tank Battle v3 server running on http://localhost:${PORT}`);
+  console.log(`Tank Battle server running on http://localhost:${PORT}`);
 });
