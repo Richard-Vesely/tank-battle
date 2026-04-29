@@ -136,18 +136,33 @@ function startGame(room) {
   });
 
   const tickMs = 1000 / C.TICK_RATE;
+  const broadcastMs = 1000 / C.BROADCAST_RATE;
+  // Warn when a tick or broadcast takes longer than its budget — useful for
+  // diagnosing freezes ("did the host stall, or did our code stall?").
+  const tickBudgetMs = tickMs * 2;
+  const broadcastBudgetMs = broadcastMs * 2;
   let lastTick = Date.now();
 
   room.tickInterval = setInterval(() => {
     const now = Date.now();
     const dt = (now - lastTick) / 1000;
     lastTick = now;
+    const t0 = Date.now();
     updateGame(room, dt, now);
+    const elapsed = Date.now() - t0;
+    if (elapsed > tickBudgetMs) {
+      console.warn(`[slow-tick] room=${room.code} elapsed=${elapsed}ms players=${room.players.size} bullets=${room.bullets.length} mines=${room.mines.length}`);
+    }
   }, tickMs);
 
   room.broadcastInterval = setInterval(() => {
+    const t0 = Date.now();
     broadcastState(room);
-  }, 1000 / C.BROADCAST_RATE);
+    const elapsed = Date.now() - t0;
+    if (elapsed > broadcastBudgetMs) {
+      console.warn(`[slow-broadcast] room=${room.code} elapsed=${elapsed}ms players=${room.players.size}`);
+    }
+  }, broadcastMs);
 }
 
 function updateGame(room, dt, now) {

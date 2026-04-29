@@ -10,15 +10,26 @@ function placeMine(room, playerId, damage) {
     id: room.mineIdCounter++,
     owner: playerId,
     x: p.x, y: p.y,
-    damage: damage
+    damage: damage,
+    createdAt: Date.now()
   });
   io.to(room.code).emit('minePlaced', { owner: playerId, x: p.x, y: p.y });
 }
 
 function updateMines(room) {
   const io = getIo();
+  const now = Date.now();
   for (let i = room.mines.length - 1; i >= 0; i--) {
     const m = room.mines[i];
+
+    // Despawn old mines so room.mines stays bounded over long matches.
+    if (m.createdAt && now - m.createdAt > C.MINE_LIFETIME_MS) {
+      io.to(room.code).emit('mineExploded', { x: m.x, y: m.y, victim: null });
+      room.mines.splice(i, 1);
+      continue;
+    }
+
+    let detonated = false;
     for (const [pid, p] of room.players) {
       if (pid === m.owner) continue;
       if (!p.alive) continue;
@@ -31,9 +42,11 @@ function updateMines(room) {
           if (p.hp <= 0) killPlayer(room, pid, m.owner);
         }
         room.mines.splice(i, 1);
+        detonated = true;
         break;
       }
     }
+    if (detonated) continue;
   }
 }
 

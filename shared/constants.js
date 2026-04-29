@@ -158,6 +158,7 @@ const CONSTANTS = {
   },
 
   MINE_RADIUS: 40,
+  MINE_LIFETIME_MS: 75000,
 
   // ─── Domination Mode ─────────────────────────────────────
   MODE_FFA: 'ffa',
@@ -170,7 +171,7 @@ const CONSTANTS = {
   DOMINATION_WIN_SCORE: 300,       // points to win
 
   // Game settings
-  TICK_RATE: 60,
+  TICK_RATE: 30,
   BROADCAST_RATE: 20,
   RESPAWN_TIME: 4000,
   MIN_PLAYERS: 2,
